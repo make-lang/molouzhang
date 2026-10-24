@@ -94,6 +94,11 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
 .pc .tk { grid-column: 1 / -1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--dim); }
 .pc .tk.hurt { color: var(--red); }
 .pc .kin { position: absolute; right: 4px; top: 4px; }
+.pc .gear { position: absolute; right: 4px; top: 17px; }
+.gi { display: flex; flex-direction: column; gap: 2px; padding: 3px 4px; background: var(--panel2); }
+.gi .row2 { display: flex; justify-content: space-between; align-items: center; gap: 4px; }
+.gi .row2 button { white-space: nowrap; }
+.gh { color: var(--amber); margin-top: 2px; }
 
 /* 地图 */
 #mapwrap { position: absolute; left: 160px; top: 30px; width: 256px; height: 288px; }
@@ -189,6 +194,7 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
     <div id="tabs" role="tablist">
       <button role="tab" data-tab="tile">地块</button>
       <button role="tab" data-tab="night">今晚</button>
+      <button role="tab" data-tab="gear">装备</button>
       <button role="tab" data-tab="log">记事</button>
     </div>
     <div id="sidebody" class="scroll"></div>
@@ -235,6 +241,12 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
     fist:  ['.r.r.r..', 'rrrrrr..', 'rrrrrrr.', 'rrrrrrr.', '.rrrrr..', '.rrrr...', '........', '........'],
     bag:   ['..www...', '.w...w..', 'yyyyyyy.', 'yYYYYYy.', 'yYYYYYy.', 'yyyyyyy.', '........', '........'],
     ham:   ['.ggggg..', '.ggggg..', '...b....', '...b....', '...b....', '...b....', '........', '........'],
+    crowbar: ['.....gg.', '......g.', '.....g..', '....g...', '...g....', '..g.....', '.g......', '........'],
+    axe:     ['..rrr...', '.rrrrb..', '..rrb...', '...b....', '..b.....', '.b......', 'b.......', '........'],
+    helmet:  ['........', '..yyyy..', '.yYYyyy.', '.yyyyyy.', 'yyyyyyyy', '........', '........', '........'],
+    walkie:  ['.g......', '.g......', '#####...', '#ooo#...', '#ooo#...', '#o#o#...', '#####...', '........'],
+    bike:    ['........', '.....w..', '..w.ww..', '.www.w..', 'w.w.w.w.', 'www.www.', '.w...w..', '........'],
+    medkit:  ['........', '.wwwwww.', '.wwrrww.', '.wrrrrw.', '.wrrrrw.', '.wwrrww.', '.wwwwww.', '........'],
   };
   const PAL = { '#': '#c9c2ad', o: '#8b91a3', y: '#f0b04a', Y: '#ffd88a', b: '#9c6420', B: '#c88a3e', w: '#ebe4cf', g: '#8a93a8', z: '#a9c843', k: '#ea92b2', r: '#e2654b' };
   const IC = {};
@@ -270,7 +282,7 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
   const cv = $('map'), ctx = cv.getContext('2d');
   const COL = { base: '#b98a45', house: '#6d7884', school: '#9a6c52', market: '#9b4f37', mart: '#3f6694', hospital: '#cfcdc4',
     police: '#34507c', hardware: '#7c6440', temple: '#9a3a2a', radio: '#5c6166', ruin: '#4a4440', park: '#2e4729' };
-  const TASKC = { defend: '#74a6dc', fortify: '#f0b04a', scav: '#ebe4cf', clear: '#e2654b', claim: '#f0b04a', strip: '#b07a3a', rescue: '#ea92b2' };
+  const TASKC = { craft: '#f0b04a', defend: '#74a6dc', fortify: '#f0b04a', scav: '#ebe4cf', clear: '#e2654b', claim: '#f0b04a', strip: '#b07a3a', rescue: '#ea92b2' };
   const isBaseT = t => t.t === 'base';
   function hash(x, y, k) { let h = (x * 374761393 + y * 668265263 + k * 2147483647 + S.seed) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
   const px = (x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(x, y, w, h); };
@@ -332,6 +344,7 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
     if (S.surv.some(v => v.want && v.want.x === x && v.want.y === y)) { px(ox + 12, oy + 1, 1, 7, '#ebe4cf'); px(ox + 13, oy + 1, 3, 3, '#ea92b2'); }
     if (S.sos && S.sos.x === x && S.sos.y === y) { px(ox + 12, oy + 1, 1, 7, '#ebe4cf'); if (REDUCED || tk % 2) px(ox + 13, oy + 1, 3, 3, '#74a6dc'); }
     if (t.camp) { px(ox + 2, oy + 1, 1, 6, '#ebe4cf'); px(ox + 3, oy + 1, 4, 3, S.camp && S.camp.state === 'hostile' ? '#e2654b' : '#ebe4cf'); }
+    if (t.gear && t.gear.length && !t.owned) { px(ox + 1, oy + 11, 3, 3, '#ffd88a'); px(ox + 2, oy + 12, 1, 1, '#9c6420'); }
     if (t.drop) { px(ox + 5, oy + 9, 6, 5, '#7c6440'); px(ox + 5, oy + 9, 6, 1, '#c88a3e'); px(ox + 7, oy + 9, 2, 5, '#5aa65a'); }
     if (t.owned) frameIn(ox, oy, '#f0b04a');
     const f = PLAN.fronts.find(f => f.x === x && f.y === y);
@@ -366,7 +379,7 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
     if (!p) { tip.hidden = true; hover = null; return; }
     if (!hover || hover.x !== p.x || hover.y !== p.y) { hover = p; drawMap(); }
     const t = Sim.tile(S, p.x, p.y);
-    tip.textContent = !t.seen ? '未探明' : Sim.tname(t) + (t.owned ? ' · 我方' : t.z ? ` · 丧尸 ${t.z}` : ' · 安全') + (t.scream ? ' · 尖叫者' : '') + (t.camp ? ' · 另一伙人' : '') + (t.drop ? ' · 空投' : '');
+    tip.textContent = !t.seen ? '未探明' : Sim.tname(t) + (t.owned ? ' · 我方' : t.z ? ` · 丧尸 ${t.z}` : ' · 安全') + (t.scream ? ' · 尖叫者' : '') + (t.camp ? ' · 另一伙人' : '') + (t.drop ? ' · 空投' : '') + (t.gear && t.gear.length ? ' · 有装备' : '');
     tip.hidden = false;
     tip.style.left = Math.max(0, Math.min(256 - tip.offsetWidth, p.x * 32 + 16 - tip.offsetWidth / 2)) + 'px';
     tip.style.top = (p.y === 0 ? 34 : p.y * 32 - 18) + 'px';
@@ -384,7 +397,7 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
   const pct = p => Math.round(p * 100) + '%';
   const riskCls = p => p >= 0.3 ? 'c-red' : p >= 0.12 ? 'c-amber' : 'c-good';
   const where = (x, y) => Sim.tname(Sim.tile(S, x, y));
-  const LABEL = { scav: '搜刮', clear: '清理', claim: '收复', strip: '拆除', defend: '驻守', fortify: '加固', rescue: '救人' };
+  const LABEL = { craft: '打造', scav: '搜刮', clear: '清理', claim: '收复', strip: '拆除', defend: '驻守', fortify: '加固', rescue: '救人' };
   const daysLeft = w => w.until - S.day;
   function taskText(v) {
     if (v.inj > 0) return { t: `受伤 · 休养 ${v.inj} 天`, hurt: true };
@@ -393,6 +406,7 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
     const k = v.task.k, at = v.task.x != null;
     if (k === 'defend') return { t: at ? `驻守 ${where(v.task.x, v.task.y)}` : '留守据点' };
     if (k === 'fortify') return { t: at ? `堆路障 ${where(v.task.x, v.task.y)}` : '加固据点' };
+    if (k === 'craft') return { t: `在据点打造${Sim.GEAR[v.task.item].name}` };
     return { t: `${LABEL[k]} ${where(v.task.x, v.task.y)}` };
   }
   const relOf = id => S.rel.filter(r => r[0] === id || r[1] === id).map(r => {
@@ -435,12 +449,13 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
     box.innerHTML = S.surv.map(v => {
       const tt = taskText(v), out = !Sim.ready(v);
       const T2 = Sim.TRAITS[v.trait];
-      return `<button class="pc${v.id === selSurv ? ' sel' : ''}${out ? ' out' : ''}" data-id="${v.id}" aria-pressed="${v.id === selSurv}" title="${v.job} · ${T2 ? T2.name + '：' + T2.desc : ''}">
+      return `<button class="pc${v.id === selSurv ? ' sel' : ''}${out ? ' out' : ''}" data-id="${v.id}" aria-pressed="${v.id === selSurv}" title="${v.job} · ${T2 ? T2.name + '：' + T2.desc : ''}${v.gear ? ' · 带着' + Sim.GEAR[v.gear].name : ''}">
         <canvas width="12" height="12" data-pid="${v.id}"></canvas>
         <span class="nm"><b>${v.name}</b>${T2 ? `<span class="trait">${T2.name}</span>` : `<span>${v.job}</span>`}</span>
         <span class="sk">${ic('fist', '战斗')}<em>${v.fight}</em>${ic('bag', '搜刮')}<em>${v.scav}</em>${ic('ham', '建造')}<em>${v.build}</em></span>
         <span class="tk${tt.hurt ? ' hurt' : ''}">${tt.t}</span>
         ${v.want ? `<span class="kin" title="${v.want.txt}">${ic('flag', '牵挂')}</span>` : ''}
+        ${v.gear ? `<span class="gear" title="${Sim.GEAR[v.gear].name}：${Sim.GEAR[v.gear].desc}">${ic(v.gear, Sim.GEAR[v.gear].name)}</span>` : ''}
       </button>`;
     }).join('') || '<p class="dim">楼里已经没有人了。</p>';
     box.scrollTop = top;
@@ -459,7 +474,7 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
     if (!v) { $('mapcap').innerHTML = `<span>先在左边选人，再点地块派工。</span><span>悬停地块看名字，方向键也能移动。</span>`; return; }
     const T2 = Sim.TRAITS[v.trait], rel = relOf(v.id);
     $('mapcap').innerHTML = `<span>派 <span class="c-amber">${v.name}</span>（${v.job}）去哪？点地块。${rel ? ' ' + rel : ''}</span>
-      <span>${T2 ? `<span style="color:#d6b98a">${T2.name}</span>：${T2.desc}` : ''}</span>`;
+      <span>${v.gear ? `${ic(v.gear)}<span class="c-amber">${Sim.GEAR[v.gear].name}</span> · ` : ''}${T2 ? `<span style="color:#d6b98a">${T2.name}</span>：${T2.desc}` : ''}</span>`;
   }
 
   // ---------- 右侧面板 ----------
@@ -480,7 +495,7 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
     if (k === 'defend') return t.owned;
     if (k === 'fortify') return t.owned && (base || t.bar < Sim.barMax(S));
     if (k === 'strip') return !base && t.strip > 0 && t.z === 0;
-    if (k === 'scav') return t.food + t.mat > 0;
+    if (k === 'scav') return t.food + t.mat > 0 || t.gear.length > 0;
     if (k === 'clear') return !t.owned && t.z > 0 && Sim.frontier(S, x, y);
     if (k === 'claim') return !t.owned && t.z === 0 && Sim.frontier(S, x, y);
     if (k === 'rescue') return (S.sos && S.sos.x === x && S.sos.y === y) || S.surv.some(u => u.want && u.want.k === 'rescue' && u.want.x === x && u.want.y === y);
@@ -492,10 +507,14 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
     const nFail = PLAN.fronts.filter(f => f.state === 'fail').length;
     $('tabs').querySelector('[data-tab="night"]').innerHTML = `今晚${nFail ? ` <span class="c-red">!${nFail}</span>` : ''}`;
     const body = $('sidebody');
-    body.innerHTML = tab === 'tile' ? tileHtml() : tab === 'night' ? nightHtml() : logHtml();
+    body.innerHTML = tab === 'tile' ? tileHtml() : tab === 'night' ? nightHtml() : tab === 'gear' ? gearHtml() : logHtml();
     body.scrollTop = 0;
     body.querySelectorAll('[data-task]').forEach(b => b.onclick = () => commit(Sim.setTask(S, selSurv, { k: b.dataset.task, x: selTile.x, y: selTile.y })));
     body.querySelectorAll('[data-recall]').forEach(b => b.onclick = () => commit(Sim.setTask(S, +b.dataset.recall, { k: 'defend' })));
+    body.querySelectorAll('[data-give]').forEach(b => b.onclick = () => commit(Sim.equip(S, selSurv, b.dataset.give)));
+    body.querySelectorAll('[data-unequip]').forEach(b => b.onclick = () => commit(Sim.equip(S, +b.dataset.unequip, null)));
+    body.querySelectorAll('[data-heal]').forEach(b => b.onclick = () => commit(Sim.useMedkit(S, +b.dataset.heal)));
+    body.querySelectorAll('[data-craft]').forEach(b => b.onclick = () => commit(Sim.setTask(S, selSurv, { k: 'craft', item: b.dataset.craft })));
     body.querySelectorAll('[data-fx]').forEach(b => b.onclick = () => { selTile = { x: +b.dataset.fx, y: +b.dataset.fy }; tab = 'tile'; render(); });
   }
 
@@ -515,6 +534,7 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
       <div class="desc">${t.gutted ? '拆了一部分，原本的用处没了。' : t.t === 'radio' && S.city === 'noradio' ? '电塔倒了，这里修好了也叫不来救援。' : ty.desc}${!t.owned && t.prog ? ` 施工 ${t.prog}/${ty.cost}。` : ''}</div>`;
     if (t.scream) h += `<div class="box fail"><span class="c-red">尖叫者</span><br><span class="dim">它让这里和四周的丧尸长得更快，夜里会把尸群引向它那一侧。把这一格清空就能解决它。</span></div>`;
     if (t.seen && !base) h += `<div class="kv">${ic('food')}${t.food}　${ic('mat')}${t.mat}${t.strip > 0 ? `　<span class="dim">可拆 ${t.strip}</span>` : ''}</div>`;
+    if (t.seen && t.gear.length) h += `<div class="box kin dim">地上有：${t.gear.map(k => `${ic(k)}<span class="c-amber">${Sim.GEAR[k].name}</span>`).join('、')}。搜刮、拆除或收复这里就能带回去。</div>`;
     if (t.camp) {
       const hostile = S.camp && S.camp.state === 'hostile';
       h += `<div class="box ${hostile ? 'fail' : 'kin'}"><span class="${hostile ? 'c-red' : 'c-kin'}">${hostile ? '结了仇的那伙人' : '另一伙幸存者'}</span><br><span class="dim">${hostile ? '你们抢过他们，他们迟早会找上门。' : '这里是他们的地盘，不能搜刮、清理或收复。他们在的时候，替你挡住了这一侧的尸群。'}</span></div>`;
@@ -536,9 +556,11 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
           <span class="dim">${base ? '工事' : '路障'} ${d.barRaw !== d.bar ? `${d.barRaw}→<span class="c-red">${d.bar}</span>（巨汉）` : d.bar}${base ? '' : '/' + Sim.barMax(S)} · 建筑 ${d.place} · 驻守 ${d.n} 人 +${d.people}</span></div>`;
       } else h += `<div class="box safe dim">${ic('moon')} 在地盘内侧，今晚安全。</div>`;
     }
-    if (!t.seen || !reach) return h + `<div class="dim">离地盘太远。先收复相邻的街区。</div>`;
-    if (t.camp) return h;
     const v = selSurv != null ? Sim.byId(S, selSurv) : null;
+    const byBike = !reach && v && t.seen && Sim.bikeReach(S, v, x, y);
+    if (!t.seen || (!reach && !byBike)) return h + `<div class="dim">离地盘太远。先收复相邻的街区${S.surv.some(u => u.gear === 'bike') ? '，或者让骑脚踏车的人去' : ''}。</div>`;
+    if (t.camp) return h;
+    if (byBike) h += `<div class="dim">${v.name}骑脚踏车能到这里。</div>`;
     const keys = (t.owned ? ['rescue', 'defend', 'fortify', 'scav', 'strip'] : ['rescue', 'scav', 'clear', 'claim', 'strip']).filter(k => relevant(t, x, y, k));
     if (!keys.length) return h + `<div class="dim">这里没什么可做的。</div>`;
     if (!v) h += `<div class="c-amber">在左边选一个住户来派工。</div>`;
@@ -560,6 +582,33 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
     }).join('') + `</div>`;
     const here = S.surv.filter(u => Sim.ready(u) && onTile(u, x, y) && !(base && u.task.x == null && u.task.k === 'defend'));
     if (here.length) h += `<div class="here dim">在这里：${here.map(u => `${u.name}·${LABEL[u.task.k]} <button data-recall="${u.id}">叫回</button>`).join('，')}</div>`;
+    return h;
+  }
+
+  function gearHtml() {
+    const v = selSurv != null ? Sim.byId(S, selSurv) : null, G = Sim.GEAR;
+    let h = '';
+    const counts = {};
+    for (const k of S.stash) counts[k] = (counts[k] || 0) + 1;
+    h += `<div class="gh">仓库</div>`;
+    if (!S.stash.length) h += `<div class="dim">空的。搜刮有装备的地块（地图上的黄点）能捡到，也可以在据点打造。</div>`;
+    for (const [k, n] of Object.entries(counts)) {
+      let btn = '';
+      if (G[k].use) btn = v && v.inj > 0 ? `<button class="btn" data-heal="${v.id}">给${v.name}用</button>` : '';
+      else if (v) btn = `<button class="btn" data-give="${k}">给${v.name}</button>`;
+      h += `<div class="gi"><div class="row2"><span>${ic(k)}<span class="c-amber">${G[k].name}</span>${n > 1 ? ` ×${n}` : ''}</span>${btn}</div><span class="dim">${G[k].desc}</span></div>`;
+    }
+    const carry = S.surv.filter(u => u.gear);
+    if (carry.length) {
+      h += `<div class="gh">带在身上</div>`;
+      h += carry.map(u => `<div class="gi"><div class="row2"><span>${u.name}：${ic(u.gear)}<span class="c-amber">${G[u.gear].name}</span></span><button class="btn" data-unequip="${u.id}">卸下</button></div></div>`).join('');
+    }
+    h += `<div class="gh">在据点打造</div>`;
+    if (!v) h += `<div class="dim">先在左边选人。打造的人白天在据点敲敲打打，夜里照样守据点。</div>`;
+    else for (const k of Object.keys(G).filter(k => G[k].cost)) {
+      const c = Sim.craftCost(v, k), ok = Sim.canDo(S, v, 'craft', null, null, k) && S.mat >= c, on = v.task.k === 'craft' && v.task.item === k;
+      h += `<button class="btn act" data-craft="${k}" ${ok && !on ? '' : 'disabled'}><span>${on ? `${v.name}正在打造` : `打造${G[k].name}`}</span><span>${ic('mat')}${c}</span><small>${!Sim.ready(v) ? `${v.name}现在出不了力` : S.mat < c ? '材料不够' : G[k].desc}</small></button>`;
+    }
     return h;
   }
 
@@ -630,6 +679,7 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
         <li>每个住户都有一个特质（名字旁边的字），鼠标停在卡片上能看说明。每次撑过尸潮，第二天早上从三张楼规里选一张，效果持续到这局结束；不同的楼规会把你推向不同的打法。</li>
         <li>地图上张着嘴、带红色声波的是尖叫者：它让周围丧尸长得更快，还会把夜袭引过来，清空那一格就能解决它。第 10 天以后，有些夜里会来巨汉，白天就会预告；那晚街区路障只算一半。</li>
         <li>住户之间有旧识和过节。有人心里有牵挂（粉色小旗）：救家人、拿东西、收回老家、不准拆某栋楼。达成了他会更卖力，放着不管会出事。</li>
+        <li>装备：每人能带一件，在“装备”分页里分配。撬棍在五金行、对讲机在派出所、急救包在医院和超市，住宅里有脚踏车，废墟里有安全帽（地图上的黄点）；消防斧和安全帽也能花材料在据点打造。受伤时身上的东西可能掉在原地。</li>
         <li>清晨偶尔会有事找上门：街区里的另一伙人（白旗）、收音机里的求救信号（蓝旗）、发烧的住户、烧起来的楼。有些事会接着发展好几天。</li>
       </ol>
       <div class="row"><button class="btn primary" id="d-ok">开始</button></div>`, () => { $('d-ok').onclick = closeDlg; });

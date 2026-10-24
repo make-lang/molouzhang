@@ -1,13 +1,14 @@
 // 末日楼长 · 模拟层 v0.2
 // 纯逻辑：所有函数接收 state、返回新 state，不碰 DOM。随机数种子存在 state 里，存档可完整复现。
 // v0.2：夜袭按边界逐块结算（扩张会拉长防线）；建筑可以拆掉换材料；食物充足时会有人来投奔。
+// v0.8：装备。每人一件随身物品，地图上捡、花材料打造，受伤可能掉在原地。
 // v0.7：开局先选城市状况和楼长出身；早晨事件扩充，加入国小那伙人、发烧、求救信号等事件链。
 // v0.6：丧尸分出尖叫者（地图上的优先目标）和巨汉（夜袭时让路障只算一半）。
 // v0.5：住户各有一个特质；每次撑过尸潮，从三张楼规卡里选一张，效果持续整局。
 // v0.3：住户有绑在地图上的牵挂（救人、取物、收回老家、别拆），有期限，达成会更卖力，放着不管会出事。
 const Sim = (() => {
   'use strict';
-  const VERSION = 6;
+  const VERSION = 7;
   const W = 8, H = 8;
   const GOAL = 30;          // 撑过第 30 夜，救援车队到达
   const FORT_MAX = 10;      // 据点工事上限
@@ -106,11 +107,22 @@ const Sim = (() => {
   // 楼长出身：开局第二张三选一，每个都有好处也有代价
   const ORIGINS = {
     lizhang:  { name: '退休里长',   desc: '两户老邻居带着米缸搬进来（+2 人，彼此是旧识，+6 食物）。但床位一开始就挤满了，没人能来投奔。' },
-    boss:     { name: '五金行老板', desc: '店里的存货全搬来了：材料 +10，工事 +3。但开局少一个人。' },
-    veteran:  { name: '退伍老兵',   desc: '你自己就能打：多一个战斗 5、夜猫子的老兵。但他跟楼里一个人有过节。' },
+    boss:     { name: '五金行老板', desc: '店里的存货全搬来了：材料 +10，工事 +3，还有一把消防斧。但开局少一个人。' },
+    veteran:  { name: '退伍老兵',   desc: '你自己就能打：多一个战斗 5、夜猫子、戴着安全帽的老兵。但他跟楼里一个人有过节。' },
     stall:    { name: '夜市头家',   desc: '食物 +10，开局就有楼规「大锅饭」。但材料只剩 2。' },
-    courier:  { name: '外送站长',   desc: '整片街区你都送过：地图全部探明，开局就有楼规「外送地图」。但铁门耐久上限 -4。' },
-    nurse:    { name: '护理长',     desc: '开局就有楼规「急救站」，还多一个懂护理的护理师。但开局食物 -2。' },
+    courier:  { name: '外送站长',   desc: '整片街区你都送过：地图全部探明，开局就有楼规「外送地图」和一辆脚踏车。但铁门耐久上限 -4。' },
+    nurse:    { name: '护理长',     desc: '开局就有楼规「急救站」，还多一个懂护理的护理师和两个急救包。但开局食物 -2。' },
+  };
+
+  // 装备：每人身上一件，多的放仓库（s.stash）。cost 是打造要的材料，没有 cost 的只能捡。急救包是消耗品，只放仓库。
+  // 撬棍会凭空多出资源，能打造的话人手一根就是最优解，所以只能在五金行捡。
+  const GEAR = {
+    crowbar: { name: '撬棍',   desc: '搜刮时撬开锁着的柜子，额外多 2 份（不算在这块地的存货里，搜空了就没有）；拆楼多拆 3 材料。' },
+    axe:     { name: '消防斧', cost: 6, desc: '清理时多砍倒 1 只，受伤率减半。' },
+    helmet:  { name: '安全帽', cost: 3, desc: '替戴着的人挡一次伤，然后就碎了。' },
+    walkie:  { name: '对讲机', desc: '拿着的人驻守时，相邻的每块我方地盘夜间防御 +2（一块地最多 +4）。' },
+    bike:    { name: '脚踏车', desc: '能去离地盘两格远的地方搜刮、救人，不用先把路打通；跑得快，搜刮、救人受伤率 -30%。' },
+    medkit:  { name: '急救包', use: true, desc: '用在伤员身上，马上就能出门。用完就没了。' },
   };
 
   // ---------- 工具 ----------
@@ -138,6 +150,7 @@ const Sim = (() => {
   const tname = t => TYPES[t.t].name + (t.gutted ? '（拆了一半）' : '');
   const has = (s, k) => !!(s.rules && s.rules.includes(k));
   const tr = (v, k) => v.trait === k;
+  const gear = (v, k) => v.gear === k;
   const barMax = s => 4 + (has(s, 'rebar') ? 2 : 0);
   const coords = (s) => { const out = []; for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) out.push([x, y]); return out; };
 
@@ -170,8 +183,8 @@ const Sim = (() => {
     return { lo, hi, surge };
   }
 
-  // 守军所在地块：留守（不带坐标）= 据点
-  const guardAt = (v, x, y, s) => v.task.k === 'defend' && (v.task.x == null ? isBase(tile(s, x, y)) : v.task.x === x && v.task.y === y);
+  // 守军所在地块：留守（不带坐标）= 据点。在据点打造装备的人白天干活，夜里也守着据点
+  const guardAt = (v, x, y, s) => (v.task.k === 'defend' && (v.task.x == null ? isBase(tile(s, x, y)) : v.task.x === x && v.task.y === y)) || (v.task.k === 'craft' && isBase(tile(s, x, y)));
 
   function groupKey(v) {
     const t = v.task;
@@ -203,7 +216,11 @@ const Sim = (() => {
     const team = s.surv.filter(v => ready(v) && guardAt(v, x, y, s));
     let people = team.reduce((a, v) => a + Math.max(0, v.fight + (bonus[v.id] || 0) + (tr(v, 'nightowl') ? 2 : 0)), 0);
     if (team.length > 1 && team.some(v => tr(v, 'loud'))) people += team.length - 1;
-    return { total: bar + place + people, bar, barRaw, place, people, n: team.length, names: team.map(v => v.name) };
+    // 对讲机：相邻地块上拿着对讲机驻守的人，帮这里协调调度
+    const radio = Math.min(4, 2 * nbrs(x, y).filter(([a, b]) => tile(s, a, b).owned)
+      .reduce((n, [a, b]) => n + s.surv.filter(v => ready(v) && gear(v, 'walkie') && guardAt(v, a, b, s)).length, 0));
+    people += radio;
+    return { total: bar + place + people, radio, bar, barRaw, place, people, n: team.length, names: team.map(v => v.name) };
   }
 
   // 今晚的边界：每块与未收复地块相邻的已收复地块都会遭到攻击。
@@ -252,7 +269,7 @@ const Sim = (() => {
     const v = {
       id: s.nextId++, name: pick(s, pool), job: job.name,
       fight: j(job.f), scav: j(job.s), build: j(job.b),
-      inj: 0, sulk: 0, task: { k: 'defend' }, trait: pick(s, Object.keys(TRAITS)),
+      inj: 0, sulk: 0, task: { k: 'defend' }, trait: pick(s, Object.keys(TRAITS)), gear: null,
     };
     if (v.trait === 'bigeater') v.fight = Math.min(5, v.fight + 1);
     return v;
@@ -314,7 +331,7 @@ const Sim = (() => {
     const s = {
       v: VERSION, seed, rng: seed, day: 1, food: 21, mat: 6, fort: 2, wall: 12, wallMax: 12,
       tiles: [], surv: [], gone: [], nextId: 1, rel: [], log: [], over: null, rescueDay: null, event: null, rules: [], brute: false,
-      city: null, origin: null, queue: [], camp: null, sos: null, dog: false,
+      city: null, origin: null, queue: [], camp: null, sos: null, dog: false, stash: [],
       stats: { killed: 0, recruited: 0, lost: 0, tilesLost: 0, stripped: 0 },
     };
     const bx = 1, by = 6;
@@ -346,8 +363,20 @@ const Sim = (() => {
       const k = 0.8 + rand(s) * 0.6;
       s.tiles.push({
         t, z, owned: t === 'base', seen: false, prog: 0, bar: 0, gutted: false, strip: T.strip,
-        food: Math.round(T.loot[0] * k), mat: Math.round(T.loot[1] * k),
+        food: Math.round(T.loot[0] * k), mat: Math.round(T.loot[1] * k), gear: [],
       });
+    }
+    // 装备摆在跟它对得上的建筑里：五金行有撬棍和消防斧，派出所有对讲机，医院、超市有急救包，住宅里停着脚踏车，工地废墟有安全帽
+    {
+      const at = t0 => coords(s).filter(([x, y]) => tile(s, x, y).t === t0).sort((a, b) => dist(...a) - dist(...b)).map(([x, y]) => tile(s, x, y));
+      at('hardware').forEach((t, i) => t.gear.push(i === 0 ? 'crowbar' : 'axe'));
+      at('police').forEach(t => t.gear.push('walkie'));
+      at('hospital').forEach(t => t.gear.push('medkit', 'medkit'));
+      at('mart').forEach(t => t.gear.push('medkit'));
+      const houses = coords(s).filter(([x, y]) => tile(s, x, y).t === 'house' && dist(x, y) >= 2 && dist(x, y) <= 5);
+      for (let i = 0; i < 2 && houses.length; i++) tile(s, ...houses.splice(Math.floor(rand(s) * houses.length), 1)[0]).gear.push('bike');
+      const ruins = coords(s).filter(([x, y]) => tile(s, x, y).t === 'ruin' && dist(x, y) >= 2);
+      for (let i = 0; i < 2 && ruins.length; i++) tile(s, ...ruins.splice(Math.floor(rand(s) * ruins.length), 1)[0]).gear.push('helmet');
     }
     // 尖叫者：开局两只，离据点 3–6 格，听得见所以地图上看得到
     {
@@ -404,6 +433,7 @@ const Sim = (() => {
       s.food += 6;
     }
     if (k === 'boss') {
+      s.stash.push('axe');
       s.mat += 10; s.fort = Math.min(FORT_MAX, s.fort + 3);
       const v = s.surv[s.surv.length - 1];
       s.surv = s.surv.filter(u => u !== v);
@@ -411,7 +441,7 @@ const Sim = (() => {
     }
     if (k === 'veteran') {
       const v = survivorWith(s, { name: '退伍军人', f: 5, s: 2, b: 2 }, 'nightowl');
-      v.fight = 5;
+      v.fight = 5; v.gear = 'helmet';
       const others = s.surv.filter(u => !related(s, u.id, v.id));
       s.surv.push(v);
       if (others.length) s.rel.push([v.id, pick(s, others).id, 'feud']);
@@ -419,51 +449,59 @@ const Sim = (() => {
     if (k === 'stall') { s.food += 10; s.mat = 2; s.rules.push('commune'); }
     if (k === 'courier') {
       for (const t of s.tiles) t.seen = true;
-      s.rules.push('deliver'); s.wallMax -= 4; s.wall = Math.min(s.wall, s.wallMax);
+      s.stash.push('bike'); s.rules.push('deliver'); s.wallMax -= 4; s.wall = Math.min(s.wall, s.wallMax);
     }
-    if (k === 'nurse') { s.rules.push('triage'); s.surv.push(survivorWith(s, job('护理师'), 'medic')); s.food -= 2; }
+    if (k === 'nurse') { s.rules.push('triage'); s.surv.push(survivorWith(s, job('护理师'), 'medic')); s.stash.push('medkit', 'medkit'); s.food -= 2; }
     s.log.push({ d: s.day, tone: 'info', msg: `你以前是${ORIGINS[k].name}。${ORIGINS[k].desc}` });
   }
 
   // ---------- 任务 ----------
   // defend / fortify 不带坐标 = 据点；带坐标 = 那块已收复的地
-  function canDo(s, v, k, x, y) {
+  // 脚踏车：离地盘两格以内都能去
+  const bikeReach = (s, v, x, y) => gear(v, 'bike') && s.tiles.some((t, i) => t.owned && Math.abs(i % W - x) + Math.abs(Math.floor(i / W) - y) <= 2);
+  const canGo = (s, v, x, y) => reachable(s, x, y) || bikeReach(s, v, x, y);
+
+  function canDo(s, v, k, x, y, item) {
     if (s.over || !ready(v)) return false;
     if ((k === 'defend' || k === 'fortify') && x == null) return true;
+    if (k === 'craft') return x == null && !!GEAR[item] && !!GEAR[item].cost;
     const t = tile(s, x, y);
     if (!t) return false;
     if (k === 'defend') return t.owned;
     if (k === 'fortify') return t.owned && (isBase(t) || t.bar < barMax(s));
     if (t.camp) return false;   // 别人的地盘，不能动
-    if (k === 'scav') return reachable(s, x, y) && t.food + t.mat > 0;
+    if (k === 'scav') return canGo(s, v, x, y) && (t.food + t.mat > 0 || t.gear.length > 0);
     if (k === 'clear') return !t.owned && frontier(s, x, y) && t.z > 0 && !tr(v, 'coward');
     if (k === 'claim') return !t.owned && frontier(s, x, y) && t.z === 0;
     if (k === 'strip') return !isBase(t) && t.strip > 0 && reachable(s, x, y) && t.z === 0;
-    if (k === 'rescue') return reachable(s, x, y) && (isSos(s, x, y) || s.surv.some(u => u.want && u.want.k === 'rescue' && u.want.x === x && u.want.y === y));
+    if (k === 'rescue') return canGo(s, v, x, y) && (isSos(s, x, y) || s.surv.some(u => u.want && u.want.k === 'rescue' && u.want.x === x && u.want.y === y));
     return false;
   }
 
   const isSos = (s, x, y) => !!(s.sos && s.sos.x === x && s.sos.y === y);
 
   function normTask(s, task) {
+    if (task.k === 'craft') return { k: 'craft', item: task.item };
     if (task.x != null && isBase(tile(s, task.x, task.y)) && (task.k === 'defend' || task.k === 'fortify')) return { k: task.k };
     return task.x != null ? { k: task.k, x: task.x, y: task.y } : { k: task.k };
   }
 
   function setTask(s0, id, task) {
     const s = clone(s0), v = byId(s, id);
-    if (v && canDo(s, v, task.k, task.x, task.y)) v.task = normTask(s, task);
+    if (v && canDo(s, v, task.k, task.x, task.y, task.item)) v.task = normTask(s, task);
     return s;
   }
 
   const scavRisk0 = (z, fight) => z > 0 ? clamp(0.07 * z - 0.03 * fight, 0.03, 0.6) : 0;
   const clearRisk0 = (z, fight) => clamp(0.06 * z - 0.04 * fight, 0.03, 0.55);
   const luck = v => tr(v, 'lucky') ? 0.7 : 1;
-  const scavRisk = (s, v, z, fight = v.fight) => scavRisk0(z, fight) * luck(v) * (tr(v, 'coward') ? 0.5 : 1) * (has(s, 'scout') ? 0.6 : 1);
-  const clearRisk = (s, v, z, fight = v.fight) => Math.min(0.8, clearRisk0(z, fight) * luck(v) * (tr(v, 'hothead') ? 1.5 : 1));
-  const stripYield = (s, v) => Math.ceil((Math.max(1, v.build) + 2) * (has(s, 'permit') ? 1.5 : 1));
+  const scavRisk = (s, v, z, fight = v.fight) => scavRisk0(z, fight) * luck(v) * (tr(v, 'coward') ? 0.5 : 1) * (has(s, 'scout') ? 0.6 : 1) * (gear(v, 'bike') ? 0.7 : 1);
+  const clearRisk = (s, v, z, fight = v.fight) => Math.min(0.8, clearRisk0(z, fight) * luck(v) * (tr(v, 'hothead') ? 1.5 : 1) * (gear(v, 'axe') ? 0.5 : 1));
+  const stripYield = (s, v) => Math.ceil((Math.max(1, v.build) + 2) * (has(s, 'permit') ? 1.5 : 1)) + (gear(v, 'crowbar') ? 3 : 0);
   const fortGain = (s, v) => 1 + (v.build >= 4 ? 1 : 0) + (tr(v, 'handy') ? 1 : 0) + (has(s, 'sandbag') ? 1 : 0);
-  const scavCount = (s, v) => v.scav + (tr(v, 'finder') ? 2 : 0) + (has(s, 'deliver') ? 1 : 0);
+  const scavCount = (s, v) => v.scav + (tr(v, 'finder') ? 2 : 0) + (has(s, 'deliver') ? 1 : 0) + 0;
+  const craftCost = (v, item) => Math.max(1, GEAR[item].cost - (v.build >= 4 ? 1 : 0));
+  const killBonus = v => (tr(v, 'hothead') ? 1 : 0) + (gear(v, 'axe') ? 1 : 0);
   const rescueOdds = (z, fight) => z === 0 ? 1 : clamp(1 - 0.1 * z + 0.06 * fight, 0.15, 1);
 
   // 给界面用的单人预估
@@ -471,13 +509,15 @@ const Sim = (() => {
     const t = tile(s, x, y);
     if (k === 'scav') {
       const n = scavCount(s, v) + 1, tot = t.food + t.mat, f = tot ? Math.round(Math.min(n, tot) * t.food / tot) : 0;
-      return { gain: `约 +${f} 食物 +${Math.min(n, tot) - f} 材料`, risk: scavRisk(s, v, t.z) };
+      const cb = gear(v, 'crowbar') && tot > 0 ? 2 : 0;
+      return { gain: `约 +${f} 食物 +${Math.min(n, tot) - f} 材料${cb ? `，撬柜子再 +${cb}` : ''}${t.gear.length ? `，带回${gearNames(t.gear)}` : ''}${reachable(s, x, y) ? '' : '（骑车去）'}`, risk: scavRisk(s, v, t.z) };
     }
     if (k === 'clear') {
-      const ex = tr(v, 'hothead') ? 1 : 0;
+      const ex = killBonus(v);
       const lo = Math.max(1, Math.floor(v.fight * 0.8)) + ex, hi = Math.floor(v.fight * 0.8 + 1.6) + ex;
       return { gain: `可清掉 ${lo === hi ? lo : lo + '–' + hi} 只`, risk: clearRisk(s, v, t.z) };
     }
+    if (k === 'craft') return { gain: `打造${GEAR[x].name}，耗 ${craftCost(v, x)} 材料；夜里照样守据点`, risk: 0 };
     if (k === 'claim') return { gain: `进度 +${v.build + (tr(v, 'handy') ? 1 : 0)}，还差 ${TYPES[t.t].cost - t.prog}`, risk: 0 };
     if (k === 'strip') {
       const g = Math.min(t.strip, stripYield(s, v));
@@ -485,7 +525,7 @@ const Sim = (() => {
       return { gain: `+${g} 材料（还能拆 ${t.strip}）${lose}`, risk: 0 };
     }
     if (k === 'rescue') return { gain: `找到人的机会 ${Math.round(rescueOdds(t.z, v.fight) * 100)}%`, risk: scavRisk(s, v, t.z) };
-    if (k === 'defend') return { gain: `这里夜间防御 +${v.fight + (tr(v, 'nightowl') ? 2 : 0)}`, risk: 0 };
+    if (k === 'defend') return { gain: `这里夜间防御 +${v.fight + (tr(v, 'nightowl') ? 2 : 0)}${gear(v, 'walkie') ? '，相邻地盘各 +2' : ''}`, risk: 0 };
     if (k === 'fortify') return { gain: `${isBase(t) ? '工事' : '路障'} +${fortGain(s, v)}，消耗 2 材料`, risk: 0 };
     return { gain: '', risk: 0 };
   }
@@ -499,14 +539,28 @@ const Sim = (() => {
       s.surv = s.surv.filter(u => u.id !== v.id); s.gone.push(v.name); s.stats.lost++;
       v.dead = true; L(msg, 'bad');
     };
-    const injure = (v, z) => {
+    // 受伤：安全帽先挡一次；真受了伤，身上的装备可能掉在出事的地块，之后还能捡回来
+    const injure = (v, z, t) => {
+      if (gear(v, 'helmet')) { v.gear = null; L(`${v.name}头上挨了一下，安全帽碎了，人没事。`); return; }
       v.inj = INJ_DAYS;
-      if (z >= 5 && !tr(v, 'lucky') && rand(s) < 0.04 * z) { die(v, `${v.name}没能回来。`); return; }
-      L(`${v.name}受了伤，要休养几天。`, 'bad');
+      const drop = v.gear && t && !isBase(t) && rand(s) < 0.4 ? v.gear : null;   // 在据点里受伤，东西就留在据点
+      if (drop) { v.gear = null; t.gear.push(drop); }
+      const lost = drop ? `${GEAR[drop].name}掉在了${tname(t)}。` : '';
+      if (z >= 5 && !tr(v, 'lucky') && rand(s) < 0.04 * z) {
+        if (v.gear) { (t && !isBase(t) ? t.gear : s.stash).push(v.gear); v.gear = null; }
+        die(v, `${v.name}没能回来。` + lost); return;
+      }
+      L(`${v.name}受了伤，要休养几天。` + lost, 'bad');
+    };
+    // 进了这块地，地上的装备就带回来
+    const takeGear = (t, who) => {
+      if (!t.gear.length) return;
+      L(`${who}在${tname(t)}找到了${gearNames(t.gear)}，放进了仓库。`, 'good');
+      s.stash.push(...t.gear); t.gear = [];
     };
 
     const team = s.surv.filter(ready);
-    for (const v of team) if (!canDo(s, v, v.task.k, v.task.x, v.task.y)) v.task = { k: 'defend' };
+    for (const v of team) if (!canDo(s, v, v.task.k, v.task.x, v.task.y, v.task.item)) v.task = { k: 'defend' };
     const { b: bonus, quarrels } = relBonus(s, team);
     for (const [a, c] of quarrels) L(`${a}和${c}一路上互相不对付，效率很差。`, 'bad');
 
@@ -526,6 +580,15 @@ const Sim = (() => {
       }
     }
 
+    // 打造装备
+    for (const v of team.filter(v => v.task.k === 'craft')) {
+      const it = v.task.item, c = craftCost(v, it);
+      v.task = { k: 'defend' };
+      if (s.mat < c) { L(`材料不够打造${GEAR[it].name}，${v.name}改去守门。`); continue; }
+      s.mat -= c; s.stash.push(it);
+      L(`${v.name}敲敲打打了一整天，做出一件${GEAR[it].name}，放进了仓库。`, 'good');
+    }
+
     // 地块任务按地块分组（驻守和加固在夜里结算，这里跳过）
     const groups = {};
     for (const v of team) if (v.task.x != null && v.task.k !== 'defend' && v.task.k !== 'fortify') (groups[groupKey(v)] = groups[groupKey(v)] || []).push(v);
@@ -537,9 +600,9 @@ const Sim = (() => {
         for (const v of g) {
           if (t.z <= 0) break;
           const z0 = t.z, f = Math.max(0, v.fight + bonus[v.id]);
-          if (rand(s) < clearRisk(s, v, z0, f)) injure(v, z0);
+          if (rand(s) < clearRisk(s, v, z0, f)) injure(v, z0, t);
           if (v.dead) continue;
-          const k1 = clamp(Math.max(f > 0 ? 1 : 0, Math.floor(f * 0.8 + rand(s) * 1.6)) + (tr(v, 'hothead') ? 1 : 0), 0, t.z);
+          const k1 = clamp(Math.max(f > 0 ? 1 : 0, Math.floor(f * 0.8 + rand(s) * 1.6)) + killBonus(v), 0, t.z);
           t.z -= k1; kills += k1;
         }
         s.stats.killed += kills;
@@ -554,6 +617,7 @@ const Sim = (() => {
           t.owned = true; t.prog = cost;
           L(`${nm}收复了，${who}留下来守第一夜。${t.gutted ? '拆过的楼只能当通道用。' : TYPES[t.t].desc}`, 'good');
           for (const v of g) v.task = { k: 'defend', x, y };   // 施工队留下来守第一夜
+          takeGear(t, who);
           for (const u of s.surv) if (u.want && u.want.k === 'reclaim' && u.want.x === x && u.want.y === y)
             fulfil(s, u, `${u.name}站在自家门口看了很久。`);
           if (eff(t).radio && s.city === 'noradio') L('电台修好了，可是电塔倒了，喇叭里只有杂音。只能靠自己撑到第 30 天。', 'bad');
@@ -575,6 +639,7 @@ const Sim = (() => {
         let got = 0;
         for (const v of g) { const n = Math.min(t.strip, Math.max(1, stripYield(s, v) + bonus[v.id])); t.strip -= n; got += n; }
         s.mat += got; s.stats.stripped += got;
+        takeGear(t, who);
         if (has(s, 'wrecking') && got > 0) s.fort = Math.min(FORT_MAX, s.fort + 1);
         let msg = `${who}拆了${TYPES[t.t].name}的门窗、货架和钢筋，带回 ${got} 材料。`;
         if (lostPerk) msg += '这栋楼原本的用处没了。';
@@ -584,12 +649,13 @@ const Sim = (() => {
         let gf = 0, gm = 0;
         for (const v of g) {
           if (t.food + t.mat <= 0) break;
-          if (t.z > 0 && rand(s) < scavRisk(s, v, t.z)) { injure(v, t.z); if (v.dead) continue; }
+          if (t.z > 0 && rand(s) < scavRisk(s, v, t.z)) { injure(v, t.z, t); if (v.dead) continue; }
           let n = Math.max(1, scavCount(s, v) + bonus[v.id] + ri(s, 0, 2));
           while (n > 0 && t.food + t.mat > 0) {
             if (t.food > 0 && (t.mat === 0 || rand(s) < t.food / (t.food + t.mat))) { t.food--; gf++; } else { t.mat--; gm++; }
             n--;
           }
+          if (gear(v, 'crowbar')) { const bf = rand(s) < 0.5 ? 1 : 0; gf += 1 + bf; gm += 1 - bf; }   // 撬开锁着的柜子：不占这块地的存货
           const T = eff(t);
           if (T.recruit && s.surv.length < beds(s) && rand(s) < T.recruit * (tr(v, 'charmer') ? 2 : 1)) {
             const nv = recruit(s);
@@ -597,6 +663,7 @@ const Sim = (() => {
           }
         }
         s.food += gf; s.mat += gm;
+        if (g.some(v => !v.dead && v.inj === 0)) takeGear(t, who);
         if (t.drop) { t.drop = false; L(`${who}在${nm}找到了空投箱。`, 'good'); }
         L(`${who}从${nm}搜回 ${gf} 食物、${gm} 材料。` + (t.food + t.mat === 0 ? '这里搜空了。' : ''));
         if (g.some(v => !v.dead && v.inj === 0)) for (const u of s.surv) if (u.want && u.want.k === 'fetch' && u.want.x === x && u.want.y === y)
@@ -607,7 +674,7 @@ const Sim = (() => {
         if (!asker && !sos) continue;
         let found = false;
         for (const v of g) {
-          if (t.z > 0 && rand(s) < scavRisk(s, v, t.z)) { injure(v, t.z); continue; }
+          if (t.z > 0 && rand(s) < scavRisk(s, v, t.z)) { injure(v, t.z, t); continue; }
           if (rand(s) < rescueOdds(t.z, Math.max(0, v.fight + bonus[v.id]))) { found = true; break; }
         }
         if (sos) {
@@ -642,6 +709,7 @@ const Sim = (() => {
       if (s.hunger === 1) L('今晚有人没吃上饭。再断一天粮，就会有人走。', 'bad');
       else if (s.surv.length) {
         const v = pick(s, s.surv);
+        if (v.gear) s.stash.push(v.gear);
         s.surv = s.surv.filter(u => u.id !== v.id); s.gone.push(v.name); s.stats.lost++;
         L(`断粮了。${v.name}半夜收拾东西走了。`, 'bad');
       }
@@ -666,7 +734,7 @@ const Sim = (() => {
         const dmg = s.brute ? Math.ceil(diff * 1.5) : diff;
         s.wall -= dmg;
         L(`据点遭到 ${str} 级的冲击，防御只有 ${def}。铁门损伤 ${dmg} 点。`, 'bad');
-        if (diff >= 3 && guards.length) injure(pick(s, guards), 3);
+        if (diff >= 3 && guards.length) injure(pick(s, guards), 3, t);
       } else if (t.bar >= diff * (s.brute ? 2 : 1)) {
         const loss = diff * (s.brute ? 2 : 1);
         t.bar -= loss;
@@ -674,7 +742,7 @@ const Sim = (() => {
       } else {
         lostTiles.push([f.x, f.y]);
         L(`${tname(t)}遭到 ${str} 级的冲击，防御只有 ${def}。守不住了，大家退回据点。`, 'bad');
-        for (const v of guards) if (rand(s) < 0.5) injure(v, 3);
+        for (const v of guards) if (rand(s) < 0.5) injure(v, 3, t);
         t.owned = false; t.prog = 0; t.bar = 0; t.z = clamp(1 + Math.floor(diff / 2), 1, 5);
         s.stats.tilesLost++;
       }
@@ -717,6 +785,7 @@ const Sim = (() => {
       if (w.k === 'protect') { fulfil(s, v, `${nm}一直没被动过。${v.name}嘴上不说，心里很感激。`); continue; }
       v.want = null;
       if (w.k === 'rescue') {
+        if (v.gear) s.stash.push(v.gear);
         s.surv = s.surv.filter(u => u.id !== v.id); s.gone.push(v.name); s.stats.lost++;
         L(`${v.name}等不下去了，半夜一个人去${nm}找${w.kin}，再也没有回来。`, 'bad');
       } else {
@@ -974,7 +1043,7 @@ const Sim = (() => {
 
   function burn(s, x, y) {
     const t = tile(s, x, y);
-    Object.assign(t, { t: 'ruin', z: 0, scream: false, food: 0, mat: Math.floor(t.mat / 2), strip: 0, gutted: false, prog: 0, drop: false });
+    Object.assign(t, { t: 'ruin', z: 0, scream: false, food: 0, mat: Math.floor(t.mat / 2), strip: 0, gutted: false, prog: 0, drop: false, gear: [] });
   }
 
   // 投奔的概率：有空床、人均存粮越多，越容易有人循着炊烟找上门
@@ -1127,7 +1196,7 @@ const Sim = (() => {
       } else { s.queue.push({ day: s.day + 2, id: 'fever2', p: { id: v.id, bit: p.bit } }); L(`${v.name}说自己没事，照常出门。`); }
     } else if (id === 'fever2') {
       const v = byId(s, p.id);
-      const kill = () => { s.surv = s.surv.filter(u => u.id !== v.id); s.gone.push(v.name); s.stats.lost++; };
+      const kill = () => { if (v.gear) s.stash.push(v.gear); s.surv = s.surv.filter(u => u.id !== v.id); s.gone.push(v.name); s.stats.lost++; };
       if (i === 0) { kill(); L(`你们在顶楼送走了${v.name}。那天晚上没人说话。`, 'bad'); }
       else if (rand(s) < 0.5) {
         kill();
@@ -1205,6 +1274,32 @@ const Sim = (() => {
     return s;
   }
 
+  // ---------- 装备 ----------
+  const gearNames = list => list.map(k => GEAR[k].name).join('、');
+  // 把仓库里的 key 给某人（他原本身上的放回仓库）；key 为 null 就是卸下
+  function equip(s0, id, key) {
+    const s = clone(s0), v = byId(s, id);
+    if (!v || s.over) return s0;
+    if (key == null) { if (v.gear) { s.stash.push(v.gear); v.gear = null; } return s; }
+    const i = s.stash.indexOf(key);
+    if (i < 0 || GEAR[key].use) return s0;
+    s.stash.splice(i, 1);
+    if (v.gear) s.stash.push(v.gear);
+    v.gear = key;
+    // 换了装备，原来的任务可能做不了了（比如脚踏车）
+    if (!canDo(s, v, v.task.k, v.task.x, v.task.y, v.task.item) && ready(v)) v.task = { k: 'defend' };
+    for (const u of s.surv) if (ready(u) && !canDo(s, u, u.task.k, u.task.x, u.task.y, u.task.item)) u.task = { k: 'defend' };
+    return s;
+  }
+  // 急救包：伤员马上能出门
+  function useMedkit(s0, id) {
+    const s = clone(s0), v = byId(s, id), i = s.stash.indexOf('medkit');
+    if (!v || i < 0 || v.inj <= 0 || s.over) return s0;
+    s.stash.splice(i, 1); v.inj = 0; v.task = { k: 'defend' };
+    s.log.push({ d: s.day, tone: 'good', msg: `用掉一个急救包，${v.name}包扎好了，可以出门。` });
+    return s;
+  }
+
   // ---------- 存档 ----------
   function serialize(s) { return JSON.stringify(s); }
   function deserialize(str) {
@@ -1224,12 +1319,17 @@ const Sim = (() => {
       s.city = s.city || null; s.origin = s.origin || null; s.queue = s.queue || [];
       s.camp = s.camp || null; s.sos = s.sos || null; s.dog = !!s.dog;
     }
+    if (s.v < 7) { // v6 → v7：装备。旧存档地图上没有摆装备，只能靠打造
+      s.stash = s.stash || [];
+      for (const v of s.surv) if (v.gear === undefined) v.gear = null;
+      for (const t of s.tiles) t.gear = t.gear || [];
+    }
     s.v = VERSION;
     return s;
   }
 
   return {
-    VERSION, W, H, GOAL, FORT_MAX, BAR_MAX, TYPES, TRAITS, RULES, CITIES, ORIGINS, barMax, foodUse, has, surgeEvery, surgeIn,
+    VERSION, W, H, GOAL, FORT_MAX, BAR_MAX, TYPES, TRAITS, RULES, CITIES, ORIGINS, GEAR, equip, useMedkit, bikeReach, canGo, craftCost, barMax, foodUse, has, surgeEvery, surgeIn,
     newGame, endDay, setTask, canDo, preview, resolveEvent, eventView,
     nightPlan, tileDefense, horde, beds, income, owned, tile, reachable, frontier, byId, ready, score, eff, tname,
     arrivalChance, serialize, deserialize, SKILL,

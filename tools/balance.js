@@ -2,7 +2,23 @@
 const Sim = require('../src/sim.js');
 const { W, H, TYPES } = Sim;
 
+// 装备：急救包给最能打的伤员；仓库里的东西按用处发给最合适的人
+function gearUp(s, opt) {
+  if (opt.noGear) return s;
+  for (const v of s.surv.filter(v => v.inj > 0).sort((a, b) => b.fight - a.fight)) if (s.stash.includes('medkit')) s = Sim.useMedkit(s, v.id);
+  const want = { axe: v => v.fight, helmet: v => v.fight + v.scav, crowbar: v => v.scav, walkie: v => v.fight, bike: v => v.scav };
+  for (const k of ['axe', 'crowbar', 'helmet', 'walkie', 'bike']) {
+    while (s.stash.includes(k)) {
+      const v = s.surv.filter(v => !v.gear).sort((a, b) => want[k](b) - want[k](a))[0];
+      if (!v) break;
+      s = Sim.equip(s, v.id, k);
+    }
+  }
+  return s;
+}
+
 function policy(s, opt) {
+  s = gearUp(s, opt);
   const margin = opt.margin ?? 0;
   const plan = Sim.nightPlan(s);
   const pool = s.surv.filter(Sim.ready).sort((a, b) => b.fight - a.fight);
@@ -49,6 +65,11 @@ function policy(s, opt) {
     free.sort((a, b) => b.fight - a.fight);
     const v = free.shift(); if (v) tasks[v.id] = { k: 'rescue', x: s.sos.x, y: s.sos.y };
   }
+  // 打造：材料宽裕、还有人没装备时，让一个留守据点的人顺手做（夜里照样守）
+  if (!opt.noGear && !opt.noCraft && s.mat >= 12 && s.surv.filter(u => !u.gear).length > s.stash.length + 1) {
+    const home = s.surv.filter(v => tasks[v.id] && tasks[v.id].k === 'defend' && tasks[v.id].x == null).sort((a, b) => b.build - a.build)[0];
+    if (home) tasks[home.id] = { k: 'craft', item: s.surv.some(u => u.gear === 'axe') || s.stash.includes('axe') ? 'helmet' : 'axe' };
+  }
   for (const v of free) {
     // 加固：缺口最大的边界
     const worst = fronts.filter(f => f.base ? s.fort < Sim.FORT_MAX : Sim.tile(s, f.x, f.y).bar < Sim.barMax(s))
@@ -61,6 +82,12 @@ function policy(s, opt) {
     if (opt.strip && s.mat < 4 && strippable2.length) { const o = strippable2[0]; tasks[v.id] = { k: 'strip', x: o.x, y: o.y }; continue; }
     if (expand && claimable.length && v.build >= 2) { const o = claimable[0]; tasks[v.id] = { k: 'claim', x: o.x, y: o.y }; continue; }
     if (expand && clearable.length && v.fight >= 2) { const o = clearable[0]; tasks[v.id] = { k: 'clear', x: o.x, y: o.y }; continue; }
+    if (v.gear === 'bike') {   // 骑车的人去走路到不了、但值得跑一趟的地方
+      const far = [];
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const t = Sim.tile(s, x, y); if (!Sim.reachable(s, x, y) && Sim.canDo(s, v, 'scav', x, y)) far.push({ x, y, t }); }
+      far.sort((a, b) => (b.t.food * 2 + b.t.mat) / (1 + b.t.z) - (a.t.food * 2 + a.t.mat) / (1 + a.t.z));
+      if (far.length && (!scavable.length || (far[0].t.food * 2 + far[0].t.mat) / (1 + far[0].t.z) > (scavable[0].t.food * 2 + scavable[0].t.mat) / (1 + scavable[0].t.z))) { tasks[v.id] = { k: 'scav', x: far[0].x, y: far[0].y }; continue; }
+    }
     if (scavable.length) { const o = scavable[0]; tasks[v.id] = { k: 'scav', x: o.x, y: o.y }; continue; }
     tasks[v.id] = { k: 'defend' };
   }
