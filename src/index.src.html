@@ -42,14 +42,15 @@ body {
 [hidden] { display: none !important; }
 button { font: inherit; color: inherit; cursor: pointer; background: none; border: 0; padding: 0; text-align: inherit; }
 button:focus-visible, canvas:focus-visible, textarea:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; }
-img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-block; }
+img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-block; vertical-align: -4px; }
 
 .frame {
-  background: var(--panel); border: 2px solid var(--edge); box-shadow: inset 0 0 0 1px var(--sunk);
+  background: linear-gradient(180deg, #1c2130 0, var(--panel) 40px); border: 2px solid var(--edge);
+  box-shadow: inset 0 0 0 1px var(--sunk), inset 0 2px 0 1px #262c3c;
   clip-path: polygon(2px 0, calc(100% - 2px) 0, 100% 2px, 100% calc(100% - 2px), calc(100% - 2px) 100%, 2px 100%, 0 calc(100% - 2px), 0 2px);
 }
 .btn {
-  background: var(--panel2); border: 2px solid var(--edge); padding: 2px 8px; line-height: 16px; box-shadow: inset 0 -2px 0 var(--sunk);
+  background: var(--panel2); border: 2px solid var(--edge); padding: 2px 8px; line-height: 16px; box-shadow: inset 0 -2px 0 var(--sunk), inset 0 1px 0 #333a4e;
   clip-path: polygon(2px 0, calc(100% - 2px) 0, 100% 2px, 100% calc(100% - 2px), calc(100% - 2px) 100%, 2px 100%, 0 calc(100% - 2px), 0 2px);
 }
 .btn:hover:not(:disabled) { border-color: var(--amber); }
@@ -64,7 +65,7 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
 
 /* HUD */
 #hud { position: absolute; left: 0; top: 0; width: 960px; height: 32px; display: flex; align-items: center; gap: 14px; padding: 0 6px 0 10px;
-  background: var(--sunk); border-bottom: 2px solid var(--edge); }
+  background: linear-gradient(180deg, #151925, var(--sunk)); border-bottom: 2px solid var(--edge); box-shadow: 0 2px 0 #07080c; }
 #hud .logo { color: var(--amber); }
 #hud img.ic { width: 16px; height: 16px; }
 #hud .res { display: flex; align-items: center; gap: 4px; white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -82,7 +83,8 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
 #roster { position: absolute; left: 8px; top: 40px; width: 224px; height: 432px; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
 .ptitle { display: flex; justify-content: space-between; color: var(--dim); padding: 0 2px; }
 #people { flex: 1; display: flex; flex-direction: column; gap: 4px; padding-right: 3px; }
-.pc { display: grid; grid-template-columns: 36px 1fr; gap: 0 7px; text-align: left; padding: 5px 6px; border: 1px solid transparent; background: var(--panel2); position: relative; }
+.pc { display: grid; grid-template-columns: 36px 1fr; gap: 0 7px; text-align: left; padding: 5px 6px; border: 1px solid transparent; background: var(--panel2); position: relative; box-shadow: inset 0 1px 0 #2c3245, inset 0 -1px 0 #161a24; }
+.pc canvas { box-shadow: 0 0 0 1px #0c0e14, 0 0 0 2px #3a4258; }
 .pc:hover { border-color: var(--edge-hi); }
 .pc.sel { border-color: var(--amber); background: #2d2a26; }
 .pc.out { opacity: .55; }
@@ -90,9 +92,9 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
 .pc .nm { display: flex; gap: 6px; padding-right: 20px; align-items: baseline; white-space: nowrap; overflow: hidden; }
 .pc .nm span { color: var(--dim); }
 .pc .nm .trait { color: #d6b98a; }
-.pc .sk { display: flex; gap: 4px; align-items: center; color: var(--dim); white-space: nowrap; }
-.pc .sk em { font-style: normal; color: var(--ink); margin-right: 6px; }
-.pc .job { color: var(--dim); margin-left: 6px; }
+.pc .sk { padding-right: 16px; display: flex; gap: 2px; align-items: center; color: var(--dim); white-space: nowrap; }
+.pc .sk em { font-style: normal; color: var(--ink); margin-right: 5px; }
+.pc .job { color: var(--dim); margin-left: 2px; overflow: hidden; text-overflow: ellipsis; }
 .pc .tk { grid-column: 1 / -1; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--dim); }
 .pc .tk.hurt { color: var(--red); }
 .pc .kin { position: absolute; right: 6px; top: 6px; }
@@ -105,7 +107,7 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
 
 /* 地图 */
 #mapwrap { position: absolute; left: 240px; top: 40px; width: 384px; height: 432px; }
-#map { position: absolute; left: 0; top: 0; width: 384px; height: 384px; image-rendering: pixelated; cursor: pointer; background: #0b0d12; box-shadow: 0 0 0 2px var(--sunk), 0 0 0 3px var(--edge); }
+#map { position: absolute; left: 0; top: 0; width: 384px; height: 384px; image-rendering: pixelated; cursor: pointer; background: #0b0d12; box-shadow: 0 0 0 2px var(--sunk), 0 0 0 4px var(--edge), 0 0 0 5px #0a0b10; }
 #mapcap { position: absolute; left: 0; top: 392px; width: 384px; height: 40px; display: flex; flex-direction: column; justify-content: center; color: var(--dim); white-space: nowrap; overflow: hidden; }
 #mapcap > span { overflow: hidden; text-overflow: ellipsis; }
 #tip { position: absolute; pointer-events: none; padding: 0 4px; background: var(--sunk); border: 1px solid var(--edge-hi); white-space: nowrap; z-index: 3; }
@@ -191,7 +193,7 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
     <div id="people" class="scroll"></div>
   </aside>
   <section id="mapwrap">
-    <canvas id="map" width="128" height="128" tabindex="0" aria-label="街区地图，方向键移动选择"></canvas>
+    <canvas id="map" width="384" height="384" tabindex="0" aria-label="街区地图，方向键移动选择"></canvas>
     <div id="tip" hidden></div>
     <div id="mapcap"></div>
   </section>
@@ -254,134 +256,395 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
     medkit:  ['........', '.wwwwww.', '.wwrrww.', '.wrrrrw.', '.wrrrrw.', '.wwrrww.', '.wwwwww.', '........'],
   };
   const PAL = { '#': '#c9c2ad', o: '#8b91a3', y: '#f0b04a', Y: '#ffd88a', b: '#9c6420', B: '#c88a3e', w: '#ebe4cf', g: '#8a93a8', z: '#a9c843', k: '#ea92b2', r: '#e2654b' };
+  // 8×8 的底稿用 Scale2x 放大成 16×16：斜边变顺，不是简单的方块放大；再给下边缘压一圈暗色当投影
+  function scale2x(rows) {
+    const at = (x, y) => (rows[y] && rows[y][x]) || '.', out = Array.from({ length: 16 }, () => []);
+    for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) {
+      const P = at(x, y), A = at(x, y - 1), B = at(x + 1, y), C = at(x - 1, y), D = at(x, y + 1);
+      out[2 * y][2 * x] = C === A && C !== D && A !== B ? A : P;
+      out[2 * y][2 * x + 1] = A === B && A !== C && B !== D ? B : P;
+      out[2 * y + 1][2 * x] = D === C && D !== B && C !== A ? C : P;
+      out[2 * y + 1][2 * x + 1] = B === D && B !== A && D !== C ? D : P;
+    }
+    return out;
+  }
   const IC = {};
   for (const [k, rows] of Object.entries(ICONS)) {
-    const c = document.createElement('canvas'); c.width = 8; c.height = 8; const g = c.getContext('2d');
-    rows.forEach((r, y) => [...r].forEach((ch, x) => { if (PAL[ch]) { g.fillStyle = PAL[ch]; g.fillRect(x, y, 1, 1); } }));
+    const c = document.createElement('canvas'); c.width = 16; c.height = 16; const g = c.getContext('2d');
+    const big = scale2x(rows);
+    big.forEach((r, y) => r.forEach((ch, x) => { if (PAL[ch] && !PAL[(big[y + 1] || [])[x]] && y < 15) { g.fillStyle = 'rgba(0,0,0,.55)'; g.fillRect(x, y + 1, 1, 1); } }));
+    big.forEach((r, y) => r.forEach((ch, x) => { if (PAL[ch]) { g.fillStyle = PAL[ch]; g.fillRect(x, y, 1, 1); } }));
     IC[k] = c.toDataURL();
   }
   const ic = (k, label = '') => `<img class="ic" src="${IC[k]}" alt="${label}">`;
 
-  // ---------- 头像 ----------
-  const SKIN = ['#f1c9a0', '#dcae84', '#c48d64', '#a8724e'];
-  const HAIR = ['#2a2420', '#3d2c22', '#5a3a26', '#1b1b25', '#6b4a2e'];
-  const SHIRT = { '退休警察': '#3f5f9a', '水电工': '#c4762f', '夜市摊贩': '#c94f45', '护理师': '#7fbcb0', '外送员': '#5aa65a', '国中老师': '#8a7cc4', '健身教练': '#d44f7c', '装潢师傅': '#9a8a5a', '里长': '#b0a070', '大学生': '#5e88c4', '保全': '#4a4f5c', '菜贩': '#6c9a3a', '退伍军人': '#55663a', '逃兵': '#55663a' };
+  // ---------- 头像（36×36，1:1 显示） ----------
+  const SKIN = ['#f1c9a0', '#e2b48c', '#c99670', '#a8724e'];
+  const HAIR = ['#231d1a', '#3a2a20', '#55361f', '#17171f', '#6b4a2e'];
+  const SHIRT = { '退休警察': '#34558f', '水电工': '#c4762f', '夜市摊贩': '#c24a40', '护理师': '#78b8ad', '外送员': '#4f9a52', '国中老师': '#7d70b8', '健身教练': '#cf4a76', '装潢师傅': '#8d7f52', '里长': '#a8996a', '大学生': '#577fb8', '保全': '#41475a', '菜贩': '#62903a', '退伍军人': '#4f5f36', '逃兵': '#4f5f36' };
   const hsh = n => { let h = 2166136261; for (const ch of String(n)) h = Math.imul(h ^ ch.charCodeAt(0), 16777619); return h >>> 0; };
+  function shade(hex, d) { const n = parseInt(hex.slice(1), 16); const f = v => Math.max(0, Math.min(255, v + d)); return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`; }
   function portrait(c, v) {
     const g = c.getContext('2d'), h = hsh(v.name);
-    const old = /^老|王太太/.test(v.name);
-    const skin = SKIN[h % 4], hair = old ? '#b9b6ad' : HAIR[(h >> 3) % 5], shirt = SHIRT[v.job] || '#777';
     const p = (x, y, w, hh, col) => { g.fillStyle = col; g.fillRect(x, y, w, hh); };
-    p(0, 0, 12, 12, '#131620');
-    p(3, 2, 6, 1, hair); p(2, 3, 8, 1, hair);
-    p(2, 4, 8, 3, skin); p(2, 4, 1, 2, hair); p(9, 4, 1, 2, hair);
-    if ((h >> 6) % 2 && !old) { p(2, 4, 1, 4, hair); p(9, 4, 1, 4, hair); }
-    p(4, 5, 1, 1, '#1a1410'); p(7, 5, 1, 1, '#1a1410');
-    p(5, 7, 2, 1, skin);
-    p(1, 8, 10, 4, shirt); p(5, 8, 2, 1, skin);
-    if (v.inf) { p(2, 4, 8, 3, '#9aa878'); p(4, 5, 1, 1, '#5a1a1a'); p(7, 5, 1, 1, '#5a1a1a'); p(1, 9, 2, 1, '#4f5e22'); }   // 被咬：脸色发青
-    if (v.inj > 0) { p(3, 3, 6, 1, '#f4f1e8'); p(6, 2, 1, 1, '#e2654b'); }
-    if (v.sulk > 0) p(3, 6, 1, 1, '#74a6dc');
+    const old = /^老|王太太/.test(v.name), long = !old && (h >>> 6) % 3 === 0;
+    let skin = SKIN[h % 4];
+    if (v.inf) skin = '#9aa878';
+    const hair = old ? '#bdb9b0' : HAIR[(h >>> 3) % 5], shirt = SHIRT[v.job] || '#777777';
+    // 背景：楼道里的冷光
+    p(0, 0, 36, 36, '#161a24'); p(0, 26, 36, 10, '#1b2030'); p(2, 2, 2, 2, '#232a3a');
+    // 肩膀和衣服
+    p(5, 28, 26, 8, shirt); p(3, 31, 30, 5, shirt); p(5, 28, 26, 1, shade(shirt, 30)); p(27, 29, 4, 7, shade(shirt, -30));
+    p(15, 27, 6, 3, shade(skin, -20));   // 脖子
+    p(14, 29, 8, 2, shade(shirt, -45));  // 领口
+    // 长发垂在肩后
+    if (long) { p(8, 13, 3, 15, hair); p(25, 13, 3, 15, hair); }
+    // 脸
+    p(10, 9, 16, 17, skin); p(11, 26, 14, 1, skin); p(9, 12, 1, 10, skin); p(26, 12, 1, 10, skin);
+    p(23, 10, 3, 16, shade(skin, -22));  // 侧光
+    p(8, 16, 2, 4, shade(skin, -10)); p(26, 16, 2, 4, shade(skin, -30));   // 耳朵
+    // 头发
+    p(10, 6, 16, 5, hair); p(9, 8, 18, 4, hair); p(9, 12, 2, 4, hair); p(25, 12, 2, 4, hair);
+    p(12, 6, 8, 1, shade(hair, 35));
+    if (old) { p(11, 11, 14, 1, skin); p(9, 12, 2, 2, hair); }
+    else if ((h >>> 9) % 2) p(10, 11, 7, 2, hair);   // 斜刘海
+    // 眉眼口
+    const eyeY = 17;
+    p(12, eyeY - 2, 4, 1, shade(hair, -10)); p(20, eyeY - 2, 4, 1, shade(hair, -10));
+    p(12, eyeY, 4, 2, '#f2efe6'); p(20, eyeY, 4, 2, '#f2efe6');
+    p(14, eyeY, 2, 2, v.inf ? '#7a1a1a' : '#1d1612'); p(22, eyeY, 2, 2, v.inf ? '#7a1a1a' : '#1d1612');
+    p(17, 19, 2, 3, shade(skin, -28));   // 鼻子
+    p(15, 23, 6, 1, v.sulk > 0 ? '#7a3a34' : shade(skin, -45));
+    if (v.sulk > 0) { p(14, 24, 1, 1, '#7a3a34'); p(21, 24, 1, 1, '#7a3a34'); p(12, 20, 1, 2, '#74a6dc'); }
+    if (old) { p(12, 21, 3, 1, shade(skin, -18)); p(21, 21, 3, 1, shade(skin, -18)); }
+    // 职业的小配件
+    const J = v.job;
+    if (J === '退休警察' || J === '保全') { const c2 = J === '保全' ? '#2b2f3a' : '#22355e'; p(9, 5, 18, 4, c2); p(8, 8, 20, 2, '#11141c'); p(17, 6, 2, 2, '#e3c25a'); p(20, 31, 2, 2, '#e3c25a'); }
+    if (J === '水电工' || J === '装潢师傅') { p(9, 4, 18, 5, '#e8b23a'); p(8, 8, 20, 2, '#b8862a'); p(12, 5, 4, 1, '#ffd77a'); }
+    if (J === '护理师') { p(12, 4, 12, 3, '#f2efe6'); p(17, 4, 2, 3, '#e2654b'); p(16, 5, 4, 1, '#e2654b'); }
+    if (J === '外送员') { p(9, 4, 18, 6, '#3f8a46'); p(8, 9, 20, 1, '#2a5e30'); p(11, 5, 6, 2, '#6fbf73'); p(6, 30, 3, 6, '#2a5e30'); }
+    if (J === '国中老师' || J === '大学生' && (h >>> 11) % 2) { p(11, 16, 6, 4, '#2a2a2a'); p(19, 16, 6, 4, '#2a2a2a'); p(12, 17, 4, 2, '#f2efe6'); p(20, 17, 4, 2, '#f2efe6'); p(14, 17, 2, 2, '#1d1612'); p(22, 17, 2, 2, '#1d1612'); p(17, 17, 2, 1, '#2a2a2a'); }
+    if (J === '夜市摊贩' || J === '菜贩') { p(12, 29, 12, 7, '#e8e1cf'); p(12, 29, 12, 1, '#c8c0aa'); }
+    if (J === '健身教练') { p(10, 28, 4, 8, skin); p(22, 28, 4, 8, skin); }
+    if (J === '里长') { p(7, 29, 5, 7, '#c9a24a'); p(24, 29, 5, 7, '#c9a24a'); }
+    if (J === '退伍军人' || J === '逃兵') { p(9, 5, 18, 5, '#3f4d2c'); p(11, 6, 3, 2, '#5a6b3a'); p(19, 7, 3, 2, '#2e3820'); }
+    if (v.gear === 'helmet' && !['水电工', '装潢师傅'].includes(J)) { p(9, 4, 18, 5, '#e8b23a'); p(8, 8, 20, 2, '#b8862a'); }
+    // 状态
+    if (v.inf) { p(11, 22, 1, 3, '#4f5e22'); p(24, 12, 1, 4, '#4f5e22'); p(6, 31, 4, 2, '#5a1a1a'); }
+    if (v.inj > 0) { p(9, 10, 18, 3, '#efeadc'); p(9, 12, 18, 1, '#cfc8b4'); p(21, 10, 3, 2, '#d24a3a'); }
   }
 
-  // ---------- 地图 ----------
+  // ---------- 地图：每格 48 像素，1:1 显示 ----------
+  // 静态的街景（路面、楼、阴影、亮灯的窗）按地块状态画一次缓存起来；丧尸、灯光、标记这些会动的每帧重画
+  const TS = 48;
   const cv = $('map'), ctx = cv.getContext('2d');
-  const COL = { base: '#b98a45', house: '#6d7884', school: '#9a6c52', market: '#9b4f37', mart: '#3f6694', hospital: '#cfcdc4',
-    police: '#34507c', hardware: '#7c6440', temple: '#9a3a2a', radio: '#5c6166', ruin: '#4a4440', park: '#2e4729' };
   const TASKC = { craft: '#f0b04a', defend: '#74a6dc', fortify: '#f0b04a', scav: '#ebe4cf', clear: '#e2654b', claim: '#f0b04a', strip: '#b07a3a', rescue: '#ea92b2' };
   const isBaseT = t => t.t === 'base';
   function hash(x, y, k) { let h = (x * 374761393 + y * 668265263 + k * 2147483647 + S.seed) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
   const px = (x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(x, y, w, h); };
-  function shade(hex, d) { const n = parseInt(hex.slice(1), 16); const f = v => Math.max(0, Math.min(255, v + d)); return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`; }
-  function frameIn(ox, oy, c) { px(ox, oy, 16, 1, c); px(ox, oy + 15, 16, 1, c); px(ox, oy, 1, 16, c); px(ox + 15, oy, 1, 16, c); }
+  const sprites = new Map();
+  function tileSprite(x, y, t) {
+    const key = `${S.seed}|${x},${y}|${t.t}|${t.gutted ? 1 : 0}|${t.owned ? 1 : 0}|${t.t === 'park' && t.owned ? 'g' : ''}`;
+    let c = sprites.get(key);
+    if (c) return c;
+    if (sprites.size > 400) sprites.clear();
+    c = document.createElement('canvas'); c.width = TS; c.height = TS;
+    const g = c.getContext('2d');
+    const P = (a, b, w, h, col) => { g.fillStyle = col; g.fillRect(a, b, w, h); };
+    const r = k => hash(x, y, k);
+    drawGround(P, r);
+    (BUILD[t.t] || BUILD.ruin)(P, r, t.owned, g);
+    if (t.gutted && t.t !== 'ruin') gutted(P, r);
+    if (t.owned) glow(g);
+    sprites.set(key, c);
+    return c;
+  }
 
-  function drawTile(x, y, tk) {
-    const t = Sim.tile(S, x, y), ox = x * 16, oy = y * 16, lit = t.owned;
-    px(ox, oy, 16, 16, '#1d2027');
-    if (hash(x, y, 77) > 0.6) px(ox + 7, oy + 15, 2, 1, '#34373e');
-    const c = COL[t.t];
-    if (t.t === 'park') {
-      px(ox + 1, oy + 1, 14, 14, lit ? '#3e5f2c' : '#26391f');
-      for (let i = 0; i < 4; i++) { const tx = ox + 2 + Math.floor(hash(x, y, i) * 10), ty = oy + 2 + Math.floor(hash(x, y, i + 9) * 9); px(tx, ty, 3, 3, lit ? '#6f9a45' : '#35552c'); px(tx + 1, ty + 3, 1, 1, '#5a4430'); }
-      if (lit) for (let i = 0; i < 3; i++) px(ox + 3 + i * 4, oy + 12, 3, 1, '#8fb35a');
-    } else if (t.t === 'ruin') {
-      for (let i = 0; i < 14; i++) { const rx = ox + 1 + Math.floor(hash(x, y, i) * 13), ry = oy + 3 + Math.floor(hash(x, y, i + 30) * 11); px(rx, ry, 2, 1 + (i % 2), i % 3 ? '#4a4440' : '#5e554c'); }
-      px(ox + 3, oy + 4, 3, 7, '#3c3733'); px(ox + 4, oy + 3, 1, 1, '#3c3733');
-    } else {
-      const top = t.t === 'temple' ? 4 : t.t === 'radio' ? 7 : 2;
-      px(ox + 2, oy + top + 1, 12, 14 - top, '#0d0f14');
-      px(ox + 1, oy + top, 12, 14 - top, c);
-      px(ox + 1, oy + top, 12, 1, shade(c, 25));
-      px(ox + 12, oy + top, 1, 14 - top, shade(c, -35));
-      for (let wy = oy + top + 2; wy < oy + 12; wy += 3) for (let wx = ox + 3; wx < ox + 12; wx += 3) {
-        let on = lit && hash(wx, wy, 3) > 0.35;
-        if (on && !REDUCED && hash(wx, wy, tk >> 2) > 0.93) on = false;
-        px(wx, wy, 1, 1, on ? '#ffd27a' : '#191c22');
+  // 路面：每格四周是半条马路，中间是人行道围着的一块地
+  function drawGround(P, r) {
+    P(0, 0, TS, TS, '#1e2128');
+    for (let i = 0; i < 18; i++) P(Math.floor(r(100 + i) * 46), Math.floor(r(140 + i) * 46), 1, 1, i % 3 ? '#252830' : '#191b21');   // 柏油的颗粒
+    for (let i = 4; i < TS; i += 10) { P(i, 0, 5, 1, '#3d3b33'); P(i, TS - 1, 5, 1, '#3d3b33'); P(0, i, 1, 5, '#3d3b33'); P(TS - 1, i, 1, 5, '#3d3b33'); }   // 车道虚线
+    P(3, 3, 42, 42, '#3a3d45'); P(3, 3, 42, 1, '#4b4f58'); P(3, 3, 1, 42, '#454952'); P(3, 44, 42, 1, '#2a2d34');   // 人行道
+    for (let i = 7; i < 44; i += 6) { P(i, 3, 1, 2, '#33363d'); P(i, 43, 1, 2, '#33363d'); }
+    P(5, 5, 38, 38, '#2b2e35');   // 地基
+    if (r(7) > 0.6) { const a = 4 + Math.floor(r(8) * 38); P(a, 1, 2, 2, '#14161b'); }   // 人孔盖
+  }
+  // 楼：屋顶 + 立面的 3/4 视角，阴影往右下投
+  function block(P, x, y, w, roofH, facH, roofC, wallC) {
+    P(x + 3, y + 3, w, roofH + facH, 'rgba(0,0,0,.38)');
+    P(x, y, w, roofH, roofC); P(x, y, w, 1, shade(roofC, 28)); P(x, y + roofH - 1, w, 1, shade(roofC, -30));
+    P(x, y + roofH, w, facH, wallC); P(x + w - 2, y + roofH, 2, facH, shade(wallC, -32)); P(x, y + roofH, w, 1, shade(wallC, -45));
+  }
+  function win(P, x, y, w, h, lit, on, grill) {
+    P(x, y, w, h, lit && on ? (on > 0.8 ? '#ffd27a' : '#f5b04e') : '#161b26');
+    if (!(lit && on)) P(x, y, 1, 1, '#2e384b');
+    P(x, y + h, w, 1, 'rgba(0,0,0,.35)');
+    if (grill) { P(x - 1, y - 1, w + 2, 1, '#8d939b'); P(x - 1, y + h, w + 2, 1, '#6c727a'); for (let i = x; i < x + w; i += 2) P(i, y, 1, h, '#7d838c'); }
+  }
+  function shutter(P, x, y, w, h, open) {
+    P(x, y, w, h, '#575c64'); for (let i = y + 1; i < y + h; i += 2) P(x, i, w, 1, '#484c53');
+    if (open) P(x + 1, y + h - open, w - 2, open, '#14161c');
+  }
+  function tree(P, x, y, s, lit) {
+    const c1 = lit ? '#3f6b31' : '#2c4a26', c2 = lit ? '#5c8f43' : '#3b5f31';
+    P(x - s + 2, y + s - 1, s * 2, 3, 'rgba(0,0,0,.35)');
+    P(x, y + s - 3, 2, 5, '#4e3a28');
+    P(x - s + 1, y - s + 2, s * 2 - 2, s * 2 - 3, c1); P(x - s, y - s + 4, s * 2, s * 2 - 7, c1);
+    P(x - s + 2, y - s + 2, s - 1, s - 2, c2); P(x - s + 3, y - s + 3, 2, 2, lit ? '#83b35e' : '#4c7340');
+  }
+  function person(P, x, y, shirt) { P(x, y, 2, 2, '#e7c39a'); P(x, y + 2, 2, 3, shirt); P(x, y + 5, 1, 2, '#2a2a33'); P(x + 1, y + 5, 1, 2, '#2a2a33'); }
+  function glow(g) {   // 有电的地盘：门口一圈暖光
+    const gr = g.createRadialGradient(24, 40, 2, 24, 40, 22);
+    gr.addColorStop(0, 'rgba(255,190,90,.22)'); gr.addColorStop(1, 'rgba(255,190,90,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, TS, TS);
+  }
+  function gutted(P, r) {   // 拆了一半：窗户破了、墙上开洞、门口一堆碎砖
+    for (let i = 0; i < 5; i++) { const a = 7 + Math.floor(r(60 + i) * 30), b = 10 + Math.floor(r(70 + i) * 24); P(a, b, 3 + (i % 3), 3, '#0c0d11'); P(a, b + 3, 3 + (i % 3), 1, '#5a5048'); }
+    for (let i = 0; i < 10; i++) P(8 + Math.floor(r(80 + i) * 32), 38 + Math.floor(r(90 + i) * 5), 3, 2, i % 2 ? '#6b5f55' : '#4f4740');
+    P(30, 30, 1, 8, '#8a5a3a'); P(33, 32, 1, 6, '#8a5a3a');
+  }
+
+  const WALLS = ['#c9c3b5', '#b48c7e', '#8fa39a', '#9b9d96', '#c2a978', '#a9b4bf'];
+  const BUILD = {
+    base(P, r, lit) {   // 老公寓：五层楼，铁窗、顶楼加盖、水塔
+      block(P, 6, 3, 36, 9, 31, '#6d6862', '#a5845a');
+      for (let y = 14; y < 41; y += 2) P(6, y, 34, 1, 'rgba(0,0,0,.07)');
+      P(8, 4, 13, 7, '#5d6b78'); for (let i = 9; i < 21; i += 2) P(i, 4, 1, 7, '#4c5864'); P(8, 4, 13, 1, '#7a8896');   // 加盖的铁皮屋
+      P(30, 9, 1, 3, '#3b3b3b'); P(37, 9, 1, 3, '#3b3b3b'); P(29, 3, 10, 6, '#4f7fa8'); P(29, 3, 10, 1, '#78a5cc'); P(37, 3, 2, 6, '#3d6688');   // 水塔
+      for (let f = 0; f < 4; f++) for (let c = 0; c < 3; c++) win(P, 9 + c * 11, 15 + f * 6, 7, 3, lit, r(f * 3 + c) > 0.3 ? r(20 + f * 3 + c) : 0, true);
+      P(20, 36, 8, 7, '#7e2a22'); P(20, 36, 8, 1, '#a33a2e'); P(23, 37, 1, 6, '#5e1f19'); P(26, 39, 1, 1, '#e0c070');   // 红铁门
+      P(10, 39, 6, 3, '#6b6f75'); P(31, 38, 7, 4, '#3a3a3a');   // 信箱、机车
+    },
+    house(P, r, lit) {   // 透天厝：两户并排，高低、颜色不同
+      for (let k = 0; k < 2; k++) {
+        const x = k ? 24 : 5, w = k ? 19 : 18, fl = 3 + (r(k + 1) > 0.5 ? 1 : 0), wall = WALLS[Math.floor(r(k + 3) * WALLS.length)];
+        const fac = fl * 7 + 3, roof = 5, y = 43 - fac - roof;
+        block(P, x, y, w, roof, fac, '#6a655e', wall);
+        if (r(k + 5) > 0.4) { P(x + 3, y - 1, 6, 5, k ? '#d8d4c8' : '#4f7fa8'); P(x + 3, y - 1, 6, 1, '#f0ece0'); }   // 屋顶水塔
+        else { P(x + 2, y + 2, w - 5, 1, '#8d8478'); for (let i = 0; i < 3; i++) P(x + 3 + i * 4, y + 3, 2, 2, ['#c24a40', '#d8d4c8', '#577fb8'][i]); }   // 晾衣服
+        for (let f = 0; f < fl - 1; f++) { const wy = y + roof + 3 + f * 7; win(P, x + 2, wy, 5, 3, lit, r(k * 9 + f) > 0.35 ? r(30 + k * 9 + f) : 0, true); win(P, x + w - 9, wy, 5, 3, lit, r(k * 9 + f + 4) > 0.35 ? r(40 + k * 9 + f) : 0, true); P(x + 1, wy + 5, w - 3, 1, shade(wall, -40)); }
+        shutter(P, x + 2, 36, w - 5, 7, r(k + 7) > 0.5 ? 3 : 0);
       }
-      px(ox + 6, oy + 12, 2, 3, '#14161b');
-      if (t.gutted) { px(ox + 2, oy + top + 1, 4, 3, '#1d2027'); px(ox + 9, oy + 9, 3, 4, '#1d2027'); }
-      if (t.t === 'hospital') { px(ox + 6, oy + top + 1, 2, 4, '#c8423a'); px(ox + 5, oy + top + 2, 4, 2, '#c8423a'); }
-      if (t.t === 'police') { px(ox + 1, oy + top + 1, 12, 1, '#e8e6df'); px(ox + 6, oy + top - 1, 2, 1, (tk % 2) ? '#d8463a' : '#4a7ad8'); }
-      if (t.t === 'market' || t.t === 'mart') for (let i = 0; i < 6; i++) px(ox + 1 + i * 2, oy + 10, 2, 2, i % 2 ? '#e8e2d2' : (t.t === 'market' ? '#c4553a' : '#4d86c6'));
-      if (t.t === 'hardware') px(ox + 3, oy + top + 1, 8, 2, '#d8b453');
-      if (t.t === 'temple') { px(ox, oy + 3, 15, 2, '#7d2a1f'); px(ox + 2, oy + 2, 11, 1, '#d9a63a'); px(ox, oy + 2, 1, 1, '#d9a63a'); px(ox + 14, oy + 2, 1, 1, '#d9a63a'); if (lit) px(ox + 6, oy + 9, 2, 2, '#ffb04a'); }
-      if (t.t === 'radio') { px(ox + 6, oy + 1, 2, 6, '#8a9096'); px(ox + 4, oy + 3, 6, 1, '#8a9096'); px(ox + 6, oy, 2, 1, S.rescueDay ? '#ffd27a' : (tk % 2 ? '#c8423a' : '#5a1f1a')); }
-      if (t.t === 'school') { px(ox + 1, oy + 13, 12, 2, '#6a4c3a'); px(ox + 12, oy + 1, 1, 3, '#cfcdc4'); px(ox + 13, oy + 1, 2, 1, '#c8423a'); }
-      if (t.t === 'base') { for (let wx = ox + 2; wx < ox + 12; wx += 2) px(wx, oy + 5, 1, 7, '#2a2a2a'); px(ox + 1, oy + 1, 12, 1, '#7c5c2e'); px(ox + 9, oy, 3, 1, '#7c5c2e'); }
+    },
+    school(P, r, lit) {   // 国小：长长的两层楼，前面是跑道
+      block(P, 5, 5, 38, 5, 15, '#7b5a48', '#d6c9a8');
+      P(5, 17, 36, 2, '#a2563f');
+      for (let f = 0; f < 2; f++) for (let c = 0; c < 6; c++) win(P, 7 + c * 6, 12 + f * 6, 4, 3, lit, r(f * 6 + c) > 0.5 ? r(50 + c) : 0, false);
+      P(6, 27, 36, 16, '#9a3e33'); P(9, 30, 30, 10, '#3f6a34'); P(9, 30, 30, 1, '#e8e2d2'); P(9, 39, 30, 1, '#e8e2d2'); P(23, 30, 1, 10, '#e8e2d2');
+      P(43, 6, 1, 18, '#cfcdc4'); P(44, 6, 4, 3, '#c8423a'); P(44, 7, 4, 1, '#3a5aa8');   // 旗杆
+    },
+    park(P, r, lit, g, t) {
+      P(5, 5, 38, 38, lit ? '#2f4a28' : '#223820');
+      for (let i = 0; i < 30; i++) P(6 + Math.floor(r(200 + i) * 36), 6 + Math.floor(r(240 + i) * 36), 1, 1, lit ? '#3d5e31' : '#2b4526');
+      if (lit) {   // 收复的公园改成菜园
+        for (let row = 0; row < 4; row++) { P(8, 9 + row * 8, 22, 5, '#4a3626'); for (let i = 0; i < 6; i++) P(9 + i * 4, 9 + row * 8 + (i % 2), 2, 2, '#7fb257'); }
+        P(35, 14, 1, 10, '#6b4a2e'); P(33, 16, 5, 1, '#6b4a2e'); P(34, 12, 3, 3, '#d6b06a'); P(33, 17, 5, 4, '#8a5a3a');   // 稻草人
+        tree(P, 37, 34, 5, lit);
+        return;
+      }
+      P(5, 22, 38, 4, '#4a4436'); P(22, 5, 4, 38, '#4a4436');   // 十字小路
+      tree(P, 13, 13, 6, false); tree(P, 34, 12, 5, false); tree(P, 13, 35, 5, false);
+      P(30, 31, 9, 2, '#6b4a2e'); P(30, 33, 1, 2, '#3a2a1a'); P(38, 33, 1, 2, '#3a2a1a');   // 长椅
+      P(32, 37, 2, 6, '#b8462e'); P(34, 39, 6, 1, '#b8462e'); P(39, 39, 1, 4, '#8a8f94');   // 溜滑梯
+    },
+    market(P, r, lit) {   // 菜市场：铁皮棚子底下一排摊位
+      P(5, 26, 38, 17, '#3a3c40');
+      P(4, 6, 40, 3, '#9aa0a6'); P(4, 9, 40, 12, '#82888e'); for (let i = 5; i < 44; i += 3) P(i, 9, 1, 12, '#6c7278'); P(4, 21, 40, 1, '#4e5358');
+      P(7, 22, 1, 8, '#3d3d3d'); P(40, 22, 1, 8, '#3d3d3d'); P(5, 30, 38, 1, 'rgba(0,0,0,.4)');
+      const AW = ['#c24a40', '#3f78b8', '#4f9a52', '#d89a3a'];
+      for (let i = 0; i < 4; i++) {
+        const x = 7 + i * 9, c = AW[Math.floor(r(i) * 4)];
+        P(x, 23, 8, 3, c); for (let j = x; j < x + 8; j += 2) P(j, 23, 1, 3, '#e8e2d2');
+        P(x, 27, 8, 4, '#6b4a2e');
+        for (let j = 0; j < 3; j++) P(x + 1 + j * 2, 27, 2, 2, ['#7fb257', '#d8463a', '#f0a03a', '#e8d26a'][Math.floor(r(10 + i * 3 + j) * 4)]);
+      }
+      for (let i = 0; i < 4; i++) P(8 + i * 9, 35, 6, 4, '#4a5a6a');   // 塑胶篮
+      if (lit) P(10, 12, 28, 2, '#ffd27a55');
+    },
+    mart(P, r, lit) {   // 超市：平顶大方块，招牌、玻璃门、冷气机
+      block(P, 5, 8, 38, 6, 25, '#5c6168', '#c9c6bd');
+      P(8, 9, 6, 4, '#8d939b'); P(9, 10, 4, 2, '#5c6168'); P(17, 9, 6, 4, '#8d939b'); P(18, 10, 4, 2, '#5c6168');
+      P(5, 15, 36, 6, '#2f63a8'); P(8, 17, 10, 2, '#e8e2d2'); P(20, 17, 4, 2, '#f0b04a'); P(26, 17, 12, 2, '#e8e2d2');
+      P(7, 23, 32, 15, lit ? '#3a4d66' : '#1b2638'); for (let i = 7; i < 39; i += 8) P(i, 23, 1, 15, '#8d939b');
+      P(10, 24, 2, 8, 'rgba(255,255,255,.12)'); P(26, 24, 2, 8, 'rgba(255,255,255,.12)');
+      if (lit) for (let i = 0; i < 4; i++) P(9 + i * 8, 30, 5, 6, '#c8a060');   // 货架
+      P(19, 32, 9, 6, '#10151f'); P(23, 32, 1, 6, '#8d939b');
+      P(36, 39, 6, 3, '#9aa0a6'); P(37, 42, 1, 1, '#333'); P(41, 42, 1, 1, '#333');   // 推车
+    },
+    hospital(P, r, lit) {   // 医院：高高的白楼，红十字，停着救护车
+      block(P, 6, 2, 34, 7, 33, '#8d8f8a', '#d8d6cf');
+      P(16, 3, 10, 5, '#6d6f6a'); P(18, 4, 1, 3, '#e8e2d2'); P(23, 4, 1, 3, '#e8e2d2'); P(19, 5, 4, 1, '#e8e2d2');   // 停机坪
+      P(19, 11, 8, 8, '#f2efe6'); P(22, 12, 2, 6, '#d8463a'); P(20, 14, 6, 2, '#d8463a');
+      for (let f = 0; f < 3; f++) for (let c = 0; c < 4; c++) if (!(f === 0 && (c === 1 || c === 2))) win(P, 8 + c * 8, 11 + f * 7, 5, 4, lit, r(f * 4 + c) > 0.4 ? r(60 + c + f) : 0, false);
+      P(15, 33, 16, 2, '#d8463a'); P(17, 35, 12, 7, '#2a3a44'); P(22, 35, 1, 7, '#8d939b');
+      P(33, 36, 11, 6, '#efede6'); P(33, 38, 11, 1, '#d8463a'); P(41, 36, 3, 3, '#2a3a44'); P(34, 42, 2, 1, '#222'); P(41, 42, 2, 1, '#222');   // 救护车
+    },
+    police(P, r, lit) {   // 派出所：白墙蓝带，警徽，门口一台警车
+      block(P, 5, 8, 38, 6, 24, '#5d6670', '#d8dadf');
+      P(5, 14, 36, 5, '#2b4c86'); P(21, 15, 4, 3, '#e3c25a'); P(22, 14, 2, 1, '#e3c25a');
+      for (let c = 0; c < 4; c++) win(P, 8 + c * 9, 21, 5, 4, lit, r(c) > 0.3 ? r(70 + c) : 0, true);
+      P(18, 31, 10, 7, '#1e2a40'); P(18, 30, 10, 1, '#2b4c86'); P(22, 31, 1, 7, '#8d939b');
+      P(6, 37, 12, 5, '#f0f0f0'); P(6, 39, 12, 1, '#2b4c86'); P(8, 36, 7, 2, '#20283a'); P(7, 42, 2, 1, '#222'); P(15, 42, 2, 1, '#222');   // 警车
+    },
+    hardware(P, r, lit) {   // 五金行：黄招牌，铁卷门拉开，门口梯子、水桶
+      block(P, 6, 6, 36, 5, 32, '#6a655e', '#8f9488');
+      for (let f = 0; f < 2; f++) for (let c = 0; c < 3; c++) win(P, 9 + c * 11, 13 + f * 6, 6, 3, lit, r(f * 3 + c) > 0.4 ? r(80 + c) : 0, true);
+      P(6, 25, 34, 6, '#d8b453'); P(9, 27, 7, 2, '#3a2a10'); P(19, 27, 4, 2, '#3a2a10'); P(26, 27, 10, 2, '#3a2a10');
+      P(8, 32, 30, 11, lit ? '#3a3226' : '#17140f');
+      for (let i = 0; i < 6; i++) P(10 + i * 5, 33 + (i % 2) * 3, 3, 2, ['#c24a40', '#8d939b', '#3f78b8', '#e8b23a'][Math.floor(r(90 + i) * 4)]);
+      P(8, 32, 30, 1, '#575c64');
+      P(3, 30, 1, 13, '#b8a070'); P(6, 30, 1, 13, '#b8a070'); for (let i = 32; i < 43; i += 3) P(3, i, 4, 1, '#b8a070');   // 梯子
+      P(39, 38, 4, 5, '#3f78b8'); P(39, 38, 4, 1, '#6fa0d8');
+    },
+    temple(P, r, lit) {   // 宫庙：燕尾脊、红柱、灯笼、门口香炉
+      P(5, 5, 38, 38, '#4a4640'); for (let i = 7; i < 43; i += 4) P(5, i, 38, 1, '#423e39');
+      P(8, 18, 32, 15, '#8f2a20'); P(38, 18, 2, 15, '#6a1f18'); P(8, 18, 32, 1, '#5a1810');
+      P(5, 10, 38, 8, '#b4472f'); for (let i = 6; i < 43; i += 2) P(i, 11, 1, 7, '#9a3a26'); P(5, 17, 38, 1, '#7a2a1a');
+      P(5, 9, 38, 2, '#d9a63a'); P(3, 7, 3, 2, '#d9a63a'); P(42, 7, 3, 2, '#d9a63a'); P(2, 5, 2, 2, '#d9a63a'); P(44, 5, 2, 2, '#d9a63a');   // 燕尾往上翘
+      P(20, 7, 8, 2, '#4f9a8a'); P(23, 5, 2, 2, '#e8c24a');   // 脊上的装饰
+      P(11, 19, 2, 14, '#c8423a'); P(35, 19, 2, 14, '#c8423a'); P(11, 19, 2, 1, '#e3c25a'); P(35, 19, 2, 1, '#e3c25a');
+      P(18, 22, 12, 11, '#6a1f18'); P(18, 22, 5, 11, '#a3352a'); P(25, 22, 5, 11, '#a3352a'); P(20, 25, 2, 3, '#e8c24a'); P(26, 25, 2, 3, '#e8c24a');   // 门神
+      P(20, 36, 8, 5, '#7a5a2e'); P(19, 36, 10, 1, '#a07a3e'); P(21, 34, 1, 2, '#bbb'); P(24, 33, 1, 3, '#bbb'); P(26, 34, 1, 2, '#bbb');   // 香炉
+    },
+    radio(P, r, lit) {   // 电台：矮楼加一座格子铁塔
+      block(P, 6, 26, 24, 4, 13, '#6a6d70', '#8a8e92');
+      win(P, 9, 32, 5, 3, lit, 0.9, false); win(P, 18, 32, 5, 3, lit, 0.5, false);
+      P(10, 24, 6, 3, '#c9c6bd'); P(12, 23, 2, 1, '#c9c6bd');   // 碟子
+      for (let y = 2; y < 42; y++) { const half = Math.floor(1 + (y - 2) / 10); P(37 - half, y, 1, 1, '#9aa0a6'); P(38 + half, y, 1, 1, '#9aa0a6'); if (y % 6 === 0) P(37 - half, y, half * 2 + 2, 1, '#7d838c'); if (y % 6 === 3) { P(37, y, 2, 1, '#7d838c'); } }
+      P(34, 42, 9, 1, 'rgba(0,0,0,.4)');
+    },
+    ruin(P, r) {   // 废墟：断墙、碎砖、钢筋
+      P(5, 5, 38, 38, '#2e2b29');
+      P(8, 10, 3, 16, '#5e554c'); P(8, 10, 14, 3, '#5e554c'); P(8, 13, 14, 1, '#3a3530'); P(11, 13, 1, 13, '#3a3530');
+      P(30, 22, 3, 14, '#584f47'); P(26, 22, 7, 3, '#584f47');
+      for (let i = 0; i < 26; i++) { const a = 6 + Math.floor(r(i) * 34), b = 16 + Math.floor(r(i + 40) * 26); P(a, b, 2 + (i % 3), 2, ['#4a4440', '#5e554c', '#6b5f55', '#3c3733'][i % 4]); }
+      P(15, 18, 1, 6, '#8a5a3a'); P(17, 20, 1, 5, '#8a5a3a'); P(34, 14, 1, 7, '#8a5a3a');
+      if (r(99) > 0.5) { P(22, 32, 12, 6, '#3a2e2a'); P(23, 31, 8, 2, '#2a221f'); P(23, 38, 2, 2, '#111'); P(31, 38, 2, 2, '#111'); }   // 烧掉的车
+    },
+  };
+
+  // 会动的东西
+  const ZSLOT = [[3, 35], [11, 36], [19, 35], [27, 36], [35, 35], [41, 33], [0, 22], [42, 20], [0, 8], [42, 6], [15, -2], [29, -2]];
+  function zombie(x, y, k, tk) {
+    const j = REDUCED ? 0 : ((tk + k) % 3) - 1;
+    const cl = ['#5a4a3a', '#3e4a5a', '#5a3a3a', '#4a5a3a', '#55504a'][k % 5];
+    px(x + j, y + 9, 5, 1, 'rgba(0,0,0,.45)');
+    px(x + 1 + j, y, 3, 3, '#9fb86a'); px(x + 1 + j, y + 1, 1, 1, '#7a1a1a'); px(x + 3 + j, y + 1, 1, 1, '#7a1a1a');
+    px(x + j, y + 3, 5, 4, cl); px(x + 1 + j, y + 4, 2, 1, shade(cl, -25));
+    px(x + 4 + j, y + 3, 2, 1, '#9fb86a');   // 往前伸的手
+    px(x + 1, y + 7, 1, 2, '#2a2a2a'); px(x + 3, y + 7, 1, 2, '#2a2a2a');
+  }
+  function drawTile(x, y, tk) {
+    const t = Sim.tile(S, x, y), ox = x * TS, oy = y * TS;
+    ctx.drawImage(tileSprite(x, y, t), ox, oy);
+    if (!t.seen) {
+      px(ox, oy, TS, TS, 'rgba(5,6,10,.84)');
+      for (let i = 0; i < 6; i++) px(ox + Math.floor(hash(x, y, 300 + i) * 46), oy + Math.floor(hash(x, y, 320 + i) * 46), 1, 1, '#1a1d26');
+      return;
     }
-    if (!t.seen) { px(ox, oy, 16, 16, 'rgba(8,9,12,0.74)'); return; }
-    // （尖叫者开局就被标为已知，所以会在下面画出来）
-    const reach = Sim.reachable(S, x, y);
-    if (!t.owned) px(ox, oy, 16, 16, reach ? 'rgba(8,9,12,0.25)' : 'rgba(8,9,12,0.5)');
+    const reach = Sim.reachable(S, x, y), blink = REDUCED || tk % 2;
+    // 一点点会动的灯
+    if (t.t === 'police') px(ox + 9, oy + 35, 3, 1, blink ? '#e2463a' : '#4a7ad8');
+    if (t.t === 'radio') px(ox + 37, oy + 1, 2, 2, S.rescueDay ? '#ffd27a' : blink ? '#e2463a' : '#5a1f1a');
+    if (t.t === 'temple' && t.owned) { px(ox + 14, oy + 19, 3, 4, blink ? '#ff9a3a' : '#e2702a'); px(ox + 31, oy + 19, 3, 4, blink ? '#e2702a' : '#ff9a3a'); }
+    if (t.owned && !REDUCED && hash(x, y, tk >> 3) > 0.92) px(ox + 9 + Math.floor(hash(x, y, tk) * 28), oy + 16 + Math.floor(hash(x, y, tk + 1) * 16), 4, 3, '#161b26');   // 偶尔有扇窗熄灯
+    if (!t.owned) px(ox, oy, TS, TS, reach ? 'rgba(6,8,14,.3)' : 'rgba(6,8,14,.52)');
+    if (t.camp) {   // 另一伙人：帐篷和旗子
+      for (const [a, b] of [[9, 30], [24, 33]]) { px(ox + a, oy + b, 10, 6, '#7a6a4a'); px(ox + a + 2, oy + b - 3, 6, 3, '#8a7a5a'); px(ox + a + 4, oy + b + 2, 2, 4, '#2a241a'); }
+      px(ox + 8, oy + 8, 1, 16, '#d8d4c8'); px(ox + 9, oy + 8, 8, 5, S.camp && S.camp.state === 'hostile' ? '#e2654b' : '#ebe4cf');
+    }
     if (t.nest && t.nest.found) {
-      // 尸巢：一摊暗红的肉堆，上面的卵一明一暗地鼓动
-      px(ox + 2, oy + 9, 12, 5, '#4a1820'); px(ox + 4, oy + 7, 8, 2, '#4a1820'); px(ox + 3, oy + 8, 10, 1, '#6e2430');
-      px(ox + 1, oy + 13, 14, 1, '#2e0f14');
-      const pulse = REDUCED || tk % 2;
-      for (const [ex, ey] of [[4, 9], [8, 8], [10, 11], [6, 11]]) px(ox + ex, oy + ey, 2, 2, pulse ? '#d8707a' : '#9a3a46');
-      if (t.nest.lv >= 2) px(ox + 5, oy + 5, 6, 2, '#5a1e28');
-      if (t.nest.lv >= 3) { px(ox + 6, oy + 3, 4, 2, '#5a1e28'); px(ox + 7, oy + 3, 2, 1, pulse ? '#d8707a' : '#9a3a46'); }
-      const max = Sim.nestHp(t.nest.lv);
-      if (t.nest.hp < max) { px(ox + 1, oy + 14, 14, 1, '#2a2d30'); px(ox + 1, oy + 14, Math.max(1, Math.round(14 * t.nest.hp / max)), 1, '#e2654b'); }
+      // 尸巢：一摊不规则的肉堆，表面有血管，卵一明一暗地鼓动，触须往马路上爬
+      const lv = t.nest.lv, hw = 9 + lv * 3, hh = 6 + lv * 2, cx = ox + 24, cy = oy + 34 - lv;
+      for (let i = 0; i < 4 + lv * 2; i++) {   // 触须：从巢往外歪歪扭扭地爬
+        let a = cx, b = cy + 2; const ang = hash(x, y, 460 + i) * Math.PI * 2;
+        for (let k = 0; k < 10 + lv * 3; k++) { a += Math.cos(ang) * 1.6 + (hash(x, y, 470 + i * 20 + k) - 0.5) * 1.6; b += Math.sin(ang) * 1.1 + (hash(x, y, 480 + i * 20 + k) - 0.5) * 1.4; px(Math.round(a), Math.round(b), 1, 1, k < 6 ? '#5a1e28' : '#3e141b'); }
+      }
+      px(cx - hw + 2, cy + hh - 1, hw * 2, 3, 'rgba(0,0,0,.45)');
+      for (let dy = -hh; dy <= hh; dy++) {
+        const half = Math.round(hw * Math.sqrt(1 - (dy / (hh + 1)) ** 2) + (hash(x, y, 490 + dy + 20) - 0.5) * 3);
+        const col = dy < -hh / 2 ? '#6e2430' : dy < 0 ? '#5a1e28' : dy < hh / 2 ? '#4a1820' : '#3a1218';
+        px(cx - half, cy + dy, half * 2, 1, col);
+      }
+      for (let i = 0; i < 2 + lv; i++) { let a = cx - hw / 2 + hash(x, y, 500 + i) * hw, b = cy - hh / 2; for (let k = 0; k < hh; k++) { px(Math.round(a), b + k, 1, 1, '#8a3040'); a += hash(x, y, 510 + i * 10 + k) > 0.5 ? 1 : -1; } }   // 血管
+      for (let i = 0; i < 3 + lv * 2; i++) {
+        const a = cx - hw + 3 + Math.floor(hash(x, y, 400 + i) * (hw * 2 - 6)), b = cy - hh + 2 + Math.floor(hash(x, y, 420 + i) * (hh * 2 - 4));
+        const on = (i + tk) % 3 === 0 && !REDUCED, sz = i % 3 === 0 ? 4 : 3;
+        px(a, b, sz, sz, on ? '#e2808a' : '#9a3a46'); px(a, b, 1, 1, on ? '#ffc0c8' : '#c05a66'); px(a, b + sz, sz, 1, '#2e0f14');
+      }
+      const max = Sim.nestHp(lv);
+      if (t.nest.hp < max) { px(ox + 4, oy + 44, 40, 2, '#2a2d30'); px(ox + 4, oy + 44, Math.max(1, Math.round(40 * t.nest.hp / max)), 2, '#e2654b'); }
     }
-    for (let i = 0; i < t.z; i++) {
-      const j = REDUCED ? 0 : Math.round(hash(x, y, i + (tk >> 1) * 31) * 2 - 1);
-      const zx = ox + 1 + Math.floor(hash(x, y, i + 50) * 12) + j, zy = oy + 3 + Math.floor(hash(x, y, i + 80) * 10);
-      px(zx, zy, 2, 1, '#b6d64a'); px(zx, zy + 1, 2, 2, '#4f5e22');
-    }
+    // 丧尸：站在楼前的人行道和两侧，不挡住楼本身；一格最多画 9 只，越多越挤
+    const nz = Math.min(t.z, 9);
+    const order = ZSLOT.map((s2, i) => [hash(x, y, 50 + i), s2]).sort((a, b) => a[0] - b[0]);
+    for (let i = 0; i < nz; i++) { const [, [a, b]] = order[i]; zombie(ox + a + Math.floor(hash(x, y, 70 + i) * 3) - 1, oy + b, i, tk); }
     if (t.scream) {
-      const sx = ox + 7, sy = oy + 6;
-      px(sx, sy, 2, 2, '#e9e1f2'); px(sx, sy + 1, 2, 1, '#b02a2a'); px(sx - 1, sy + 2, 4, 1, '#8c7aa0'); px(sx, sy + 3, 2, 3, '#6d5d80');
-      if (REDUCED || tk % 2) { px(sx - 3, sy - 1, 1, 3, '#e2654b'); px(sx + 4, sy - 1, 1, 3, '#e2654b'); px(sx - 5, sy - 2, 1, 5, '#e2654b88'); px(sx + 6, sy - 2, 1, 5, '#e2654b88'); }
+      const sx = ox + 21, sy = oy + 14;
+      px(sx, sy + 12, 7, 2, 'rgba(0,0,0,.45)');
+      px(sx + 1, sy, 5, 5, '#e2d8ec'); px(sx + 2, sy + 2, 3, 2, '#9a1f1f'); px(sx + 2, sy + 1, 1, 1, '#2a1a2a'); px(sx + 4, sy + 1, 1, 1, '#2a1a2a');
+      px(sx, sy + 5, 7, 5, '#6d5d80'); px(sx - 2, sy + 2, 2, 4, '#e2d8ec'); px(sx + 7, sy + 2, 2, 4, '#e2d8ec'); px(sx + 1, sy + 10, 2, 3, '#3a3040'); px(sx + 4, sy + 10, 2, 3, '#3a3040');
+      if (blink) for (let k = 0; k < 2; k++) { const d = 5 + k * 4, a = k ? '#e2654b77' : '#e2654b'; px(sx - d, sy - 1, 1, 7, a); px(sx + 7 + d - 1, sy - 1, 1, 7, a); }
     }
-    if (!t.owned && t.prog > 0) { const w = Math.max(1, Math.round(14 * t.prog / T[t.t].cost)); px(ox + 1, oy + 14, 14, 1, '#2a2d30'); px(ox + 1, oy + 14, w, 1, '#f0b04a'); }
-    if (t.owned && !isBaseT(t)) for (let i = 0; i < t.bar; i++) { px(ox + 1 + i * 3, oy + 13, 2, 2, '#c9b48a'); px(ox + 1 + i * 3, oy + 13, 2, 1, '#e6d6ae'); }
+    if (!t.owned && t.prog > 0) { const w = Math.max(1, Math.round(40 * t.prog / T[t.t].cost)); px(ox + 4, oy + 1, 40, 2, '#2a2d30'); px(ox + 4, oy + 1, w, 2, '#f0b04a'); }
+    // 路障：沿着朝外的边堆沙包，堆得越高越长
+    if (t.owned) {
+      const bar = isBaseT(t) ? S.fort / Sim.FORT_MAX : t.bar / Sim.barMax(S);
+      if (bar > 0) for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+        const n = Sim.tile(S, x + dx, y + dy);
+        if (!n || n.owned) continue;
+        const len = Math.round(40 * bar);
+        for (let i = 0; i < len; i += 4) {
+          const bx = dy ? ox + 4 + i : dx < 0 ? ox + 1 : ox + 44, byy = dx ? oy + 4 + i : dy < 0 ? oy + 1 : oy + 44;
+          px(bx, byy, dy ? 3 : 3, dy ? 3 : 3, '#b8a27a'); px(bx, byy, 3, 1, '#d6c49c');
+        }
+      }
+    }
+    // 派出去的人
     const here = S.surv.filter(v => Sim.ready(v) && v.task.x === x && v.task.y === y);
-    here.forEach((v, i) => { const hx = ox + 2 + i * 3, hy = oy + 1; px(hx, hy, 1, 1, '#f1c9a0'); px(hx, hy + 1, 1, 2, v.id === selSurv && tk % 2 ? '#ffffff' : TASKC[v.task.k]); });
-    if (S.surv.some(v => v.want && v.want.x === x && v.want.y === y)) { px(ox + 12, oy + 1, 1, 7, '#ebe4cf'); px(ox + 13, oy + 1, 3, 3, '#ea92b2'); }
-    if (S.sos && S.sos.x === x && S.sos.y === y) { px(ox + 12, oy + 1, 1, 7, '#ebe4cf'); if (REDUCED || tk % 2) px(ox + 13, oy + 1, 3, 3, '#74a6dc'); }
-    if (t.camp) { px(ox + 2, oy + 1, 1, 6, '#ebe4cf'); px(ox + 3, oy + 1, 4, 3, S.camp && S.camp.state === 'hostile' ? '#e2654b' : '#ebe4cf'); }
-    if (t.gear && t.gear.length && !t.owned) { px(ox + 1, oy + 11, 3, 3, '#ffd88a'); px(ox + 2, oy + 12, 1, 1, '#9c6420'); }
-    if (t.drop) { px(ox + 5, oy + 9, 6, 5, '#7c6440'); px(ox + 5, oy + 9, 6, 1, '#c88a3e'); px(ox + 7, oy + 9, 2, 5, '#5aa65a'); }
-    if (t.owned) frameIn(ox, oy, '#f0b04a');
+    here.forEach((v, i) => { const hx = ox + 6 + i * 4, hy = oy + 4; person(px, hx, hy, v.id === selSurv && tk % 2 ? '#ffffff' : TASKC[v.task.k]); });
+    // 标记
+    const flag = (col, wave) => { px(ox + 38, oy + 3, 1, 14, '#ebe4cf'); px(ox + 39, oy + 3, 6, 5, col); px(ox + 39, oy + 8, 4, 1, shade(col, -40)); if (wave && blink) { px(ox + 46, oy + 2, 1, 3, col); px(ox + 46, oy + 7, 1, 3, col); } };
+    if (S.surv.some(v => v.want && v.want.x === x && v.want.y === y)) flag('#ea92b2');
+    if (S.sos && S.sos.x === x && S.sos.y === y) flag('#74a6dc', true);
+    if (t.gear && t.gear.length && !t.owned) { px(ox + 5, oy + 37, 7, 5, '#b8862a'); px(ox + 5, oy + 37, 7, 1, '#ffd88a'); px(ox + 8, oy + 37, 1, 5, '#7a5a1a'); if (blink) px(ox + 12, oy + 35, 1, 1, '#fff6d0'); }
+    if (t.drop) { px(ox + 18, oy + 22, 12, 6, '#ebe4cf'); px(ox + 20, oy + 21, 8, 1, '#ebe4cf'); px(ox + 19, oy + 28, 1, 5, '#c9c2ad'); px(ox + 28, oy + 28, 1, 5, '#c9c2ad'); px(ox + 19, oy + 33, 10, 7, '#7c6440'); px(ox + 19, oy + 33, 10, 1, '#c88a3e'); px(ox + 23, oy + 33, 2, 7, '#5aa65a'); }
+    // 我方地盘：琥珀色的边和角
+    if (t.owned) { ctx.globalAlpha = 0.45; px(ox, oy, TS, 1, '#f0b04a'); px(ox, oy + TS - 1, TS, 1, '#f0b04a'); px(ox, oy, 1, TS, '#f0b04a'); px(ox + TS - 1, oy, 1, TS, '#f0b04a'); ctx.globalAlpha = 1; corners(ox, oy, '#f0b04a', 5, 0); }
+    // 今晚守不住、看运气的边闪烁
     const f = PLAN.fronts.find(f => f.x === x && f.y === y);
-    if (f && f.state !== 'safe' && (REDUCED || tk % 2)) {
+    if (f && f.state !== 'safe' && blink) {
       const col = f.state === 'fail' ? '#e2654b' : '#f0b04a';
       const open = (a, b) => { const n = Sim.tile(S, a, b); return n && !n.owned; };
-      if (open(x, y - 1)) px(ox, oy, 16, 2, col);
-      if (open(x, y + 1)) px(ox, oy + 14, 16, 2, col);
-      if (open(x - 1, y)) px(ox, oy, 2, 16, col);
-      if (open(x + 1, y)) px(ox + 14, oy, 2, 16, col);
+      if (open(x, y - 1)) px(ox, oy, TS, 3, col);
+      if (open(x, y + 1)) px(ox, oy + TS - 3, TS, 3, col);
+      if (open(x - 1, y)) px(ox, oy, 3, TS, col);
+      if (open(x + 1, y)) px(ox + TS - 3, oy, 3, TS, col);
     }
+  }
+  function corners(ox, oy, col, len, o) {
+    for (const [a, b, w, h] of [[0, 0, len, 2], [0, 0, 2, len], [TS - len, 0, len, 2], [TS - 2, 0, 2, len], [0, TS - 2, len, 2], [0, TS - len, 2, len], [TS - len, TS - 2, len, 2], [TS - 2, TS - len, 2, len]])
+      px(ox + a + (a ? o : -o), oy + b + (b ? o : -o), w, h, col);
+  }
+  function frameIn(ox, oy, c) { px(ox, oy, TS, 1, c); px(ox, oy + TS - 1, TS, 1, c); px(ox, oy, 1, TS, c); px(ox + TS - 1, oy, 1, TS, c); }
+  function rain(tk) {   // 梅雨季：整张图斜斜的雨丝
+    if (S.city !== 'rain') return;
+    ctx.globalAlpha = 0.28;
+    for (let i = 0; i < 70; i++) {
+      const sx = Math.floor(hash(i, 7, 500) * 384), sy = Math.floor(hash(i, 9, 501) * 384), off = REDUCED ? 0 : (tk * 23) % 384;
+      const yy = (sy + off) % 384, xx = (sx - Math.floor(off / 3) + 384) % 384;
+      px(xx, yy, 1, 5, '#9fb2cf'); px(xx - 1, yy + 5, 1, 2, '#9fb2cf');
+    }
+    ctx.globalAlpha = 1;
   }
   let tick = 1;
   function drawMap() {
     ctx.imageSmoothingEnabled = false;
     for (let y = 0; y < Sim.H; y++) for (let x = 0; x < Sim.W; x++) drawTile(x, y, tick);
-    if (hover && (hover.x !== selTile.x || hover.y !== selTile.y)) frameIn(hover.x * 16, hover.y * 16, 'rgba(235,228,207,.5)');
-    const sx = selTile.x * 16, sy = selTile.y * 16, o = (!REDUCED && tick % 2) ? 1 : 0;
-    for (const [a, b, w, h] of [[0, 0, 5, 1], [0, 0, 1, 5], [11, 0, 5, 1], [15, 0, 1, 5], [0, 15, 5, 1], [0, 11, 1, 5], [11, 15, 5, 1], [15, 11, 1, 5]])
-      px(sx + a + (a ? o : -o), sy + b + (b ? o : -o), w, h, '#ffffff');
+    rain(tick);
+    if (hover && (hover.x !== selTile.x || hover.y !== selTile.y)) frameIn(hover.x * TS, hover.y * TS, 'rgba(235,228,207,.55)');
+    corners(selTile.x * TS, selTile.y * TS, '#ffffff', 10, (!REDUCED && tick % 2) ? 1 : 0);
   }
   setInterval(() => { tick++; if (S && PLAN) drawMap(); }, 450);
 
@@ -469,7 +732,7 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
       const tt = taskText(v), out = !Sim.ready(v);
       const T2 = Sim.TRAITS[v.trait];
       return `<button class="pc${v.id === selSurv ? ' sel' : ''}${out ? ' out' : ''}" data-id="${v.id}" aria-pressed="${v.id === selSurv}" title="${v.job} · ${T2 ? T2.name + '：' + T2.desc : ''}${v.gear ? ' · 带着' + Sim.GEAR[v.gear].name : ''}">
-        <canvas width="12" height="12" data-pid="${v.id}"></canvas>
+        <canvas width="36" height="36" data-pid="${v.id}"></canvas>
         <span class="nm"><b>${v.name}</b>${T2 ? `<span class="trait">${T2.name}</span>` : `<span>${v.job}</span>`}</span>
         <span class="sk">${ic('fist', '战斗')}<em>${v.fight}</em>${ic('bag', '搜刮')}<em>${v.scav}</em>${ic('ham', '建造')}<em>${v.build}</em><span class="job">${v.job}</span></span>
         <span class="tk${tt.hurt ? ' hurt' : ''}">${tt.t}</span>
@@ -766,13 +1029,18 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
   // ---------- 缩放 ----------
   let rotateSkipped = false;
   function fit() {
-    const f = $('fit'), cs = getComputedStyle(f);
+    const f = $('fit'); f.style.padding = '';   // 先按带留白的尺寸量
+    const cs = getComputedStyle(f);
     const aw = f.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
     const ah = f.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
-    let sc = Math.min(aw / 964, ah / 544);
-    if (sc >= 2) sc = Math.floor(sc);
-    $('stage').style.transform = `translate(${2 * sc}px,${2 * sc}px) scale(${sc})`;
-    $('scaler').style.width = 964 * sc + 'px'; $('scaler').style.height = 544 * sc + 'px';
+    let sc = Math.min(aw / 964, ah / 544), edge = 2;
+    // 像素画只有整数倍才清楚：去掉留白和外框能凑到整数倍（比如全屏的 1080p 正好 2 倍）就去掉
+    const whole = Math.floor(Math.min(innerWidth / 960, innerHeight / 540));
+    if (whole >= 2 && whole > sc) { sc = whole; edge = 0; }
+    else if (sc >= 2) sc = Math.floor(sc);
+    f.style.padding = edge ? '' : '0';
+    $('stage').style.transform = `translate(${edge * sc}px,${edge * sc}px) scale(${sc})`;
+    $('scaler').style.width = (960 + 2 * edge) * sc + 'px'; $('scaler').style.height = (540 + 2 * edge) * sc + 'px';
     $('rotate').hidden = rotateSkipped || !(innerHeight > innerWidth && innerWidth < 600);
   }
   addEventListener('resize', fit);
