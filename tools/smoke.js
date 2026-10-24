@@ -36,7 +36,7 @@ for (let i = 0; i < 400; i++) {
     }
     const n0 = s.log.length;
     s = Sim.endDay(s);
-    for (const l of s.log.slice(n0)) for (const [k, re] of [['打造', /做出一件/], ['捡到', /找到了.*放进了仓库/], ['帽碎', /安全帽碎了/], ['掉落', /掉在了/], ['骑车', /骑车/], ['砍巢', /砍了尸巢/], ['端巢', /烧了尸巢/], ['巢长大', /尸巢又大了一圈/]]) if (re.test(l.msg)) gearOps[k] = (gearOps[k] || 0) + 1;
+    for (const l of s.log.slice(n0)) for (const [k, re] of [['打造', /做出一件/], ['捡到', /找到了.*放进了仓库/], ['帽碎', /安全帽碎了/], ['掉落', /掉在了/], ['骑车', /骑车/], ['砍巢', /砍了尸巢/], ['端巢', /烧了尸巢/], ['巢长大', /尸巢又大了一圈|尸巢又长大了/], ['发现巢', /发现了一个尸巢/], ['新巢', /新的尸巢/]]) if (re.test(l.msg)) gearOps[k] = (gearOps[k] || 0) + 1;
     s = Sim.deserialize(Sim.serialize(s));
   }
   days += s.day;

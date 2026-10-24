@@ -58,8 +58,15 @@ function policy(s, opt) {
     .sort((a, b) => (b.t.food * 2 + b.t.mat) / (1 + b.t.z) - (a.t.food * 2 + a.t.mat) / (1 + a.t.z));
   const expand = plan.edges < (opt.maxEdges ?? 99) && !opt.turtle;
   const val = o => { const T = Sim.eff(o.t); return ((T.food || 0) * 3 + (T.beds || 0) * 0.6 + (T.mat || 0) * 2 + (T.def || 0) + (T.heal ? 2 : 0) + (T.radio ? 6 : 0) + 0.3) / Math.max(1, TYPES[o.t.t].cost - o.t.prog); };
-  const claimable = front.filter(o => !o.t.owned && o.t.z === 0 && !o.t.nest).sort((a, b) => val(b) - val(a));
-  const clearable = front.filter(o => !o.t.owned && o.t.z > 0 && !o.t.nest).sort((a, b) => (opt.hunt ? (b.t.scream ? 9 : 0) - (a.t.scream ? 9 : 0) : 0) + val(b) / (1 + b.t.z) - val(a) / (1 + a.t.z));
+  // 往巢推进：离已发现的巢越近的地块越想拿（拿到离巢两格以内就能去端）
+  const nestPull = o => {
+    if (!opt.push) return 0;
+    let best = 9;
+    for (let j = 0; j < W * H; j++) { const t = s.tiles[j]; if (t.nest && t.nest.found) best = Math.min(best, Math.abs(j % W - o.x) + Math.abs(Math.floor(j / W) - o.y)); }
+    return best <= 2 ? opt.push : best === 3 ? opt.push / 2 : 0;
+  };
+  const claimable = front.filter(o => !o.t.owned && o.t.z === 0 && !o.t.nest).sort((a, b) => val(b) + nestPull(b) - val(a) - nestPull(a));
+  const clearable = front.filter(o => !o.t.owned && o.t.z > 0 && !o.t.nest).sort((a, b) => (opt.hunt ? (b.t.scream ? 9 : 0) - (a.t.scream ? 9 : 0) : 0) + (val(b) + nestPull(b)) / (1 + b.t.z) - (val(a) + nestPull(a)) / (1 + a.t.z));
   const strippable = front.filter(o => !o.t.owned && o.t.z === 0 && o.t.strip > 0 && ['house', 'ruin', 'mart', 'market'].includes(o.t.t));
   const hungry = s.food < s.surv.length * 3;
   let fortified = 0;

@@ -1,6 +1,7 @@
 // 末日楼长 · 模拟层 v0.2
 // 纯逻辑：所有函数接收 state、返回新 state，不碰 DOM。随机数种子存在 state 里，存档可完整复现。
 // v0.2：夜袭按边界逐块结算（扩张会拉长防线）；建筑可以拆掉换材料；食物充足时会有人来投奔。
+// v0.10：尸巢藏起来了，要靠地盘推近、派人路过或者丧尸繁殖的线索去找；每局数量和位置更随机，中途还会冒出新巢。
 // v0.9：尸巢。丧尸只在尸巢附近繁殖，巢会长大、会往外喷丧尸，端掉一个，那一片就安静了。
 // v0.8：装备。每人一件随身物品，地图上捡、花材料打造，受伤可能掉在原地。
 // v0.7：开局先选城市状况和楼长出身；早晨事件扩充，加入国小那伙人、发烧、求救信号等事件链。
@@ -9,7 +10,7 @@
 // v0.3：住户有绑在地图上的牵挂（救人、取物、收回老家、别拆），有期限，达成会更卖力，放着不管会出事。
 const Sim = (() => {
   'use strict';
-  const VERSION = 8;
+  const VERSION = 9;
   const W = 8, H = 8;
   const GOAL = 30;          // 撑过第 30 夜，救援车队到达
   const FORT_MAX = 10;      // 据点工事上限
@@ -111,7 +112,7 @@ const Sim = (() => {
     boss:     { name: '五金行老板', desc: '店里的存货全搬来了：材料 +10，工事 +3，还有一把消防斧。但开局少一个人。' },
     veteran:  { name: '退伍老兵',   desc: '你自己就能打：多一个战斗 5、夜猫子、戴着安全帽的老兵。但他跟楼里一个人有过节。' },
     stall:    { name: '夜市头家',   desc: '食物 +10，开局就有楼规「大锅饭」。但材料只剩 2。' },
-    courier:  { name: '外送站长',   desc: '整片街区你都送过：地图全部探明，开局就有楼规「外送地图」和一辆脚踏车。但铁门耐久上限 -4。' },
+    courier:  { name: '外送站长',   desc: '整片街区你都送过：地图全部探明，连尸巢在哪都知道，开局就有楼规「外送地图」和一辆脚踏车。但铁门耐久上限 -4。' },
     nurse:    { name: '护理长',     desc: '开局就有楼规「急救站」，还多一个懂护理的护理师和两个急救包。但开局食物 -2。' },
   };
 
@@ -126,14 +127,14 @@ const Sim = (() => {
     medkit:  { name: '急救包', use: true, desc: '用在伤员身上，马上就能出门。用完就没了。' },
   };
 
-  // 尸巢：t.nest = { lv, hp }。每级让每晚的尸群 +6%；丧尸只在离巢 NEST_R 格以内繁殖（尖叫者附近例外）；巢每晚往四周喷丧尸，
-  // 第 12、22 天各长大一级。清理巢所在的格子时，杀完游荡的丧尸（最多 nestZ 只），多出来的力气才砍得到巢本身（hp），巢每晚回 1 点。
+  // 尸巢：t.nest = { lv, hp, found }。没找到的巢照样繁殖、加尸群，只是地图上看不出来。每级让每晚的尸群 +5%；丧尸只在离巢 NEST_R 格以内繁殖（尖叫者附近例外）；巢每晚往四周喷丧尸，
+  // 出现后每 10 天长大一级（最多 3 级）。清理巢所在的格子时，杀完游荡的丧尸（最多 nestZ 只），多出来的力气才砍得到巢本身（hp），巢每晚回 1 点。
   const NEST_R = 3;
-  const nestLv = day => 1 + (day >= 12 ? 1 : 0) + (day >= 22 ? 1 : 0);
+  const nestLv = (n, day) => Math.min(3, 1 + Math.floor((day - n.born) / 10));   // 巢出现后每 10 天长一级
   const nestHp = lv => 2 + 2 * lv;
   const nestZ = lv => 1 + 2 * lv;
-  const NEST_HORDE = 0.06;
-  const HORDE_BASE = 0.88;   // 尸群有一部分是巢里出来的：基础倍率压低，两个一级巢正好补回 1.0
+  const NEST_HORDE = 0.05;
+  const HORDE_BASE = 0.78;   // 尸群有一部分是巢里出来的：基础倍率压低，平均三个巢、长到二级时大约回到 1.0
   const NEST_LOOT = ['axe', 'helmet', 'medkit', 'walkie'];
 
   // ---------- 工具 ----------
@@ -165,6 +166,7 @@ const Sim = (() => {
   const barMax = s => 4 + (has(s, 'rebar') ? 2 : 0);
   const coords = (s) => { const out = []; for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) out.push([x, y]); return out; };
   const nests = s => coords(s).filter(([x, y]) => tile(s, x, y).nest);
+  const nestHint = (s, x, y) => nests(s).some(([a, b]) => !tile(s, a, b).nest.found && Math.abs(a - x) + Math.abs(b - y) <= NEST_R);   // 界面线索：这一带有没找到的巢
   const nestMult = s => NEST_HORDE * nests(s).reduce((a, [x, y]) => a + tile(s, x, y).nest.lv, 0);
   const nearNest = (s, x, y, r = NEST_R) => nests(s).some(([a, b]) => Math.abs(a - x) + Math.abs(b - y) <= r);
 
@@ -339,6 +341,14 @@ const Sim = (() => {
 
   function updateSeen(s) {
     for (const [x, y] of coords(s)) if (reachable(s, x, y)) tile(s, x, y).seen = true;
+    // 地盘推到离巢两格以内（正好能派人去端的距离），就看得到它了
+    for (const [x, y] of nests(s)) if (near2(s, x, y)) findNest(s, x, y, '站在地盘边上望过去');
+  }
+  function findNest(s, x, y, how) {
+    const t = tile(s, x, y);
+    if (!t.nest || t.nest.found) return;
+    t.nest.found = true; t.seen = true;
+    s.log.push({ d: s.day, tone: 'bad', msg: `${how}，在${TYPES[t.t].name}（${x + 1},${y + 1}）发现了一个尸巢。` });
   }
 
   function newGame(seed) {
@@ -346,7 +356,7 @@ const Sim = (() => {
     const s = {
       v: VERSION, seed, rng: seed, day: 1, food: 21, mat: 6, fort: 2, wall: 12, wallMax: 12,
       tiles: [], surv: [], gone: [], nextId: 1, rel: [], log: [], over: null, rescueDay: null, event: null, rules: [], brute: false,
-      city: null, origin: null, queue: [], camp: null, sos: null, dog: false, stash: [],
+      city: null, origin: null, queue: [], camp: null, sos: null, dog: false, stash: [], nestDay: null,
       stats: { killed: 0, recruited: 0, lost: 0, tilesLost: 0, stripped: 0 },
     };
     const bx = 1, by = 6;
@@ -393,7 +403,8 @@ const Sim = (() => {
       const ruins = coords(s).filter(([x, y]) => tile(s, x, y).t === 'ruin' && dist(x, y) >= 2);
       for (let i = 0; i < 2 && ruins.length; i++) tile(s, ...ruins.splice(Math.floor(rand(s) * ruins.length), 1)[0]).gear.push('helmet');
     }
-    placeNests(s, 2);
+    { const r = rand(s); placeNests(s, r < 0.2 ? 1 : r < 0.75 ? 2 : 3); }   // 每局 1–3 个，多半是 2 个
+    s.nestDay = ri(s, 8, 16);   // 这一天夜里会冒出一个新巢
     // 尖叫者：开局两只，离据点 3–6 格，听得见所以地图上看得到
     {
       const cand = coords(s).filter(([x, y]) => { const d = dist(x, y), t = tile(s, x, y); return d >= 3 && d <= 6 && t.z >= 2 && t.t !== 'radio' && !t.nest; });
@@ -417,14 +428,18 @@ const Sim = (() => {
     return s;
   }
 
-  // 尸巢摆在离据点 3–4 格、彼此至少隔 3 格的地方。动静很大，开局就标在地图上
+  // 尸巢摆在离据点 3–6 格、离我方地盘至少 3 格、彼此至少隔 3 格的地方，一开始是藏着的。返回摆了几个
   function placeNests(s, n) {
-    const cand = coords(s).filter(([x, y]) => { const t = tile(s, x, y), d = distB(x, y); return d >= 3 && d <= 4 && !t.owned && !t.camp && t.t !== 'radio' && !t.scream; });
-    for (let i = 0; i < n && cand.length; i++) {
-      const [x, y] = cand.splice(Math.floor(rand(s) * cand.length), 1)[0], t = tile(s, x, y), lv = nestLv(s.day);
-      t.nest = { lv, hp: nestHp(lv) }; t.z = nestZ(lv); t.seen = true;
+    const far = (x, y) => s.tiles.every((t, i) => !t.owned || Math.abs(i % W - x) + Math.abs(Math.floor(i / W) - y) >= 3);
+    const cand = coords(s).filter(([x, y]) => { const t = tile(s, x, y), d = distB(x, y); return d >= 3 && d <= 6 && far(x, y) && !t.owned && !t.camp && !t.nest && t.t !== 'radio' && !t.scream; })
+      .filter(([x, y]) => nests(s).every(([a, b]) => Math.abs(a - x) + Math.abs(b - y) >= 3));
+    let put = 0;
+    for (let i = 0; i < n && cand.length; i++, put++) {
+      const [x, y] = cand.splice(Math.floor(rand(s) * cand.length), 1)[0], t = tile(s, x, y);
+      t.nest = { lv: 1, hp: nestHp(1), found: false, born: s.day }; t.z = nestZ(1);
       for (let j = cand.length - 1; j >= 0; j--) if (Math.abs(cand[j][0] - x) + Math.abs(cand[j][1] - y) < 3) cand.splice(j, 1);
     }
+    return put;
   }
 
   // 指定特质的新住户（特质决定的战斗加成要重新算）
@@ -474,7 +489,7 @@ const Sim = (() => {
     }
     if (k === 'stall') { s.food += 10; s.mat = 2; s.rules.push('commune'); }
     if (k === 'courier') {
-      for (const t of s.tiles) t.seen = true;
+      for (const t of s.tiles) { t.seen = true; if (t.nest) t.nest.found = true; }
       s.stash.push('bike'); s.rules.push('deliver'); s.wallMax -= 4; s.wall = Math.min(s.wall, s.wallMax);
     }
     if (k === 'nurse') { s.rules.push('triage'); s.surv.push(survivorWith(s, job('护理师'), 'medic')); s.stash.push('medkit', 'medkit'); s.food -= 2; }
@@ -486,7 +501,7 @@ const Sim = (() => {
   // 脚踏车：离地盘两格以内都能去
   const near2 = (s, x, y) => s.tiles.some((t, i) => t.owned && Math.abs(i % W - x) + Math.abs(Math.floor(i / W) - y) <= 2);
   const bikeReach = (s, v, x, y) => gear(v, 'bike') && near2(s, x, y);
-  const nestReach = (s, x, y) => !!tile(s, x, y).nest && near2(s, x, y);   // 端巢是远征：离地盘两格以内就能直接杀过去
+  const nestReach = (s, x, y) => { const n = tile(s, x, y).nest; return !!(n && n.found) && near2(s, x, y); };   // 端巢是远征：离地盘两格以内就能直接杀过去
   const canGo = (s, v, x, y) => reachable(s, x, y) || bikeReach(s, v, x, y);
 
   function canDo(s, v, k, x, y, item) {
@@ -499,7 +514,7 @@ const Sim = (() => {
     if (k === 'fortify') return t.owned && (isBase(t) || t.bar < barMax(s));
     if (t.camp) return false;   // 别人的地盘，不能动
     if (k === 'scav') return canGo(s, v, x, y) && (t.food + t.mat > 0 || t.gear.length > 0);
-    if (k === 'clear') return !t.owned && (t.nest ? nestReach(s, x, y) : frontier(s, x, y) && t.z > 0) && !tr(v, 'coward');
+    if (k === 'clear') return !t.owned && (t.nest && t.nest.found ? nestReach(s, x, y) : frontier(s, x, y) && t.z > 0) && !tr(v, 'coward');
     if (k === 'claim') return !t.owned && frontier(s, x, y) && t.z === 0 && !t.nest;
     if (k === 'strip') return !isBase(t) && t.strip > 0 && reachable(s, x, y) && t.z === 0 && !t.nest;
     if (k === 'rescue') return canGo(s, v, x, y) && (isSos(s, x, y) || s.surv.some(u => u.want && u.want.k === 'rescue' && u.want.x === x && u.want.y === y));
@@ -621,6 +636,11 @@ const Sim = (() => {
     // 地块任务按地块分组（驻守和加固在夜里结算，这里跳过）
     const groups = {};
     for (const v of team) if (v.task.x != null && v.task.k !== 'defend' && v.task.k !== 'fortify') (groups[groupKey(v)] = groups[groupKey(v)] || []).push(v);
+    // 在巢旁边干活的人会看见它
+    for (const key of Object.keys(groups)) {
+      const { x, y } = groups[key][0].task;
+      for (const [a, b] of nests(s)) if (Math.abs(a - x) + Math.abs(b - y) <= 1) findNest(s, a, b, `${groups[key][0].name}在${tname(tile(s, x, y))}干活时`);
+    }
     for (const key of Object.keys(groups)) {
       const g = groups[key], { k, x, y } = g[0].task, t = tile(s, x, y), nm = tname(t);
       const who = g.map(v => v.name).join('、');
@@ -863,12 +883,17 @@ const Sim = (() => {
 
     // 尸巢：到时候长大一级，巢本身回 1 点，自己这格补丧尸，再往两格以内喷（尸潮夜喷双倍）
     for (const [x, y] of nests(s)) {
-      const t = tile(s, x, y), lv = nestLv(s.day);
-      if (lv > t.nest.lv) { t.nest.lv = lv; t.nest.hp += 2; L(`${TYPES[t.t].name}（${x + 1},${y + 1}）的尸巢又大了一圈。`, 'bad'); }
+      const t = tile(s, x, y), lv = nestLv(t.nest, s.day);
+      if (lv > t.nest.lv) { t.nest.lv = lv; t.nest.hp += 2; L(t.nest.found ? `${TYPES[t.t].name}（${x + 1},${y + 1}）的尸巢又大了一圈。` : '夜里不知道哪个方向传来一阵湿漉漉的蠕动声，有个没找到的尸巢又长大了。', 'bad'); }
       t.nest.hp = Math.min(nestHp(t.nest.lv), t.nest.hp + 1);
       t.z = Math.min(nestZ(t.nest.lv), t.z + t.nest.lv);
       const cand = coords(s).filter(([a, b]) => { const u = tile(s, a, b), d = Math.abs(a - x) + Math.abs(b - y); return d >= 1 && d <= 2 && !u.owned && !u.camp && !u.nest && u.z < 9; });
-      for (let i = 0, n = (t.nest.lv + 1) * (plan.surge ? 2 : 1); i < n && cand.length; i++) { const [a, b] = pick(s, cand); tile(s, a, b).z++; }
+      for (let i = 0, n = t.nest.lv * (plan.surge ? 2 : 1); i < n && cand.length; i++) { const [a, b] = pick(s, cand); tile(s, a, b).z++; }
+    }
+
+    if (s.nestDay && s.day === s.nestDay) {
+      s.nestDay = null;
+      if (placeNests(s, 1)) L('半夜，街区深处的丧尸突然聚成一团。又有一个新的尸巢，不知道在哪。', 'bad');
     }
 
     // 偶尔冒出新的尖叫者（最多三只；尖叫季最多五只，梅雨季没有）
@@ -1382,12 +1407,16 @@ const Sim = (() => {
       for (const t of s.tiles) t.nest = t.nest || null;
       if (!s.over && !s.tiles.some(t => t.nest)) placeNests(s, 2);
     }
+    if (s.v < 9) { // v8 → v9：尸巢要找。旧存档里的巢本来就看得到，算已经找到；不再补新巢
+      for (const t of s.tiles) if (t.nest) { if (t.nest.found === undefined) t.nest.found = true; if (t.nest.born == null) t.nest.born = 1; }
+      if (s.nestDay === undefined) s.nestDay = null;
+    }
     s.v = VERSION;
     return s;
   }
 
   return {
-    VERSION, W, H, GOAL, NEST_R, NEST_HORDE, HORDE_BASE, nestHp, nestLv, nestZ, FORT_MAX, BAR_MAX, TYPES, TRAITS, RULES, CITIES, ORIGINS, GEAR, equip, useMedkit, bikeReach, nestReach, canGo, craftCost, barMax, foodUse, has, surgeEvery, surgeIn,
+    VERSION, W, H, GOAL, NEST_R, NEST_HORDE, HORDE_BASE, nestHp, nestLv, nestZ, nestHint, FORT_MAX, BAR_MAX, TYPES, TRAITS, RULES, CITIES, ORIGINS, GEAR, equip, useMedkit, bikeReach, nestReach, canGo, craftCost, barMax, foodUse, has, surgeEvery, surgeIn,
     newGame, endDay, setTask, canDo, preview, resolveEvent, eventView,
     nightPlan, tileDefense, horde, beds, income, owned, tile, reachable, frontier, byId, ready, score, eff, tname,
     arrivalChance, serialize, deserialize, SKILL,
