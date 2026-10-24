@@ -1,0 +1,683 @@
+<title>末日楼长</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/*FONTFACE*/
+/* 版面：640×360 的固定横版舞台，按窗口等比缩放并居中。顶部 HUD，左住户栏，中间地图，右情境面板，底部回合栏；所有对话框都在舞台里。 */
+/* 刻意只做一种深色：停电后的老街区，琥珀色的灯是唯一的暖色。 */
+:root {
+  color-scheme: dark;
+  --void: #050608;
+  --stage: #10131a;
+  --panel: #191d27;
+  --panel2: #222736;
+  --sunk: #0c0e14;
+  --edge: #353c4f;
+  --edge-hi: #59627a;
+  --ink: #ebe4cf;
+  --dim: #8b91a3;
+  --amber: #f0b04a;
+  --amber-dk: #9c6420;
+  --red: #e2654b;
+  --good: #86c79c;
+  --zombie: #a9c843;
+  --kin: #ea92b2;
+  --font: "FusionPixel", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+}
+html, body { height: 100%; }
+body {
+  background: var(--void); color: var(--ink); margin: 0; overflow: hidden;
+  font: 12px/16px var(--font); -webkit-font-smoothing: none;
+}
+#fit {
+  position: fixed; inset: 0; display: grid; place-items: center; box-sizing: border-box;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: max(8px, env(safe-area-inset-top, 0px)) max(8px, env(safe-area-inset-bottom, 0px));
+}
+#scaler { position: relative; }
+#stage {
+  position: absolute; left: 0; top: 0; width: 640px; height: 360px; transform-origin: 0 0;
+  background: var(--stage); overflow: hidden; box-shadow: 0 0 0 2px var(--edge);
+}
+#stage * { box-sizing: border-box; }
+[hidden] { display: none !important; }
+button { font: inherit; color: inherit; cursor: pointer; background: none; border: 0; padding: 0; text-align: inherit; }
+button:focus-visible, canvas:focus-visible, textarea:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; }
+img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-block; }
+
+.frame {
+  background: var(--panel); border: 2px solid var(--edge); box-shadow: inset 0 0 0 1px var(--sunk);
+  clip-path: polygon(2px 0, calc(100% - 2px) 0, 100% 2px, 100% calc(100% - 2px), calc(100% - 2px) 100%, 2px 100%, 0 calc(100% - 2px), 0 2px);
+}
+.btn {
+  background: var(--panel2); border: 2px solid var(--edge); padding: 2px 8px; line-height: 16px; box-shadow: inset 0 -2px 0 var(--sunk);
+  clip-path: polygon(2px 0, calc(100% - 2px) 0, 100% 2px, 100% calc(100% - 2px), calc(100% - 2px) 100%, 2px 100%, 0 calc(100% - 2px), 0 2px);
+}
+.btn:hover:not(:disabled) { border-color: var(--amber); }
+.btn:active:not(:disabled) { transform: translateY(1px); box-shadow: none; }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+.btn.primary { background: var(--amber); color: #1b1206; border-color: #ffd58a; box-shadow: inset 0 -2px 0 var(--amber-dk); }
+.btn.primary:hover:not(:disabled) { border-color: #fff1d0; }
+.dim { color: var(--dim); }
+.c-red { color: var(--red); } .c-amber { color: var(--amber); } .c-good { color: var(--good); } .c-kin { color: var(--kin); } .c-z { color: var(--zombie); }
+.scroll { overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--edge) transparent; }
+.scroll::-webkit-scrollbar { width: 4px; } .scroll::-webkit-scrollbar-thumb { background: var(--edge); }
+
+/* HUD */
+#hud { position: absolute; left: 0; top: 0; width: 640px; height: 24px; display: flex; align-items: center; gap: 8px; padding: 0 4px 0 8px;
+  background: var(--sunk); border-bottom: 2px solid var(--edge); }
+#hud .logo { color: var(--amber); }
+#hud .res { display: flex; align-items: center; gap: 3px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+#hud .res small { font-size: 12px; color: var(--dim); }
+#hud .spacer { flex: 1; }
+.hp { width: 32px; height: 6px; background: var(--panel); border: 1px solid var(--edge-hi); position: relative; }
+.hp i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--good); }
+.hp.low i { background: var(--red); }
+#hud > * { white-space: nowrap; flex-shrink: 0; }
+#hud .spacer { flex-shrink: 1; min-width: 0; }
+#hud .menu { display: flex; gap: 3px; }
+#hud .menu .btn { padding: 0 5px; line-height: 14px; border-width: 1px; }
+
+/* 住户栏 */
+#roster { position: absolute; left: 6px; top: 30px; width: 148px; height: 288px; padding: 4px; display: flex; flex-direction: column; gap: 3px; }
+.ptitle { display: flex; justify-content: space-between; color: var(--dim); padding: 0 2px; }
+#people { flex: 1; display: flex; flex-direction: column; gap: 3px; padding-right: 2px; }
+.pc { display: grid; grid-template-columns: 24px 1fr; gap: 0 5px; text-align: left; padding: 3px; border: 1px solid transparent; background: var(--panel2); position: relative; }
+.pc:hover { border-color: var(--edge-hi); }
+.pc.sel { border-color: var(--amber); background: #2d2a26; }
+.pc.out { opacity: .55; }
+.pc canvas { width: 24px; height: 24px; image-rendering: pixelated; grid-row: 1 / span 2; }
+.pc .nm { display: flex; gap: 4px; align-items: baseline; white-space: nowrap; overflow: hidden; }
+.pc .nm span { color: var(--dim); }
+.pc .nm .trait { color: #d6b98a; }
+.pc .sk { display: flex; gap: 3px; align-items: center; color: var(--dim); white-space: nowrap; }
+.pc .sk em { font-style: normal; color: var(--ink); margin-right: 3px; }
+.pc .tk { grid-column: 1 / -1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--dim); }
+.pc .tk.hurt { color: var(--red); }
+.pc .kin { position: absolute; right: 4px; top: 4px; }
+
+/* 地图 */
+#mapwrap { position: absolute; left: 160px; top: 30px; width: 256px; height: 288px; }
+#map { position: absolute; left: 0; top: 0; width: 256px; height: 256px; image-rendering: pixelated; cursor: pointer; background: #0b0d12; box-shadow: 0 0 0 2px var(--sunk), 0 0 0 3px var(--edge); }
+#mapcap { position: absolute; left: 0; top: 262px; width: 256px; height: 26px; display: flex; flex-direction: column; justify-content: center; color: var(--dim); white-space: nowrap; overflow: hidden; }
+#mapcap > span { overflow: hidden; text-overflow: ellipsis; }
+#tip { position: absolute; pointer-events: none; padding: 0 4px; background: var(--sunk); border: 1px solid var(--edge-hi); white-space: nowrap; z-index: 3; }
+
+/* 右侧面板 */
+#side { position: absolute; left: 422px; top: 30px; width: 212px; height: 288px; display: flex; flex-direction: column; }
+#tabs { display: flex; border-bottom: 2px solid var(--edge); }
+#tabs button { flex: 1; padding: 2px 0; text-align: center; color: var(--dim); background: var(--sunk); border-right: 1px solid var(--edge); }
+#tabs button:last-child { border-right: 0; }
+#tabs button[aria-selected="true"] { color: var(--ink); background: var(--panel); box-shadow: inset 0 2px 0 var(--amber); }
+#sidebody { flex: 1; padding: 5px 5px 6px 6px; display: flex; flex-direction: column; gap: 5px; }
+.th { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.th b { font-weight: 400; color: var(--amber); }
+.chip { padding: 0 3px; border: 1px solid currentColor; line-height: 12px; }
+.desc { color: var(--dim); }
+.kv { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.box { background: var(--sunk); padding: 3px 5px; border-left: 2px solid var(--edge); }
+.box.fail { border-color: var(--red); } .box.risk { border-color: var(--amber); } .box.safe { border-color: var(--good); } .box.kin { border-color: var(--kin); }
+.acts { display: flex; flex-direction: column; gap: 3px; }
+.act { display: grid; grid-template-columns: 1fr auto; text-align: left; padding: 1px 6px 2px; }
+.act small { grid-column: 1 / -1; font-size: 12px; color: var(--dim); }
+.here button { color: var(--amber); text-decoration: underline; text-underline-offset: 2px; }
+.bar2 { display: block; height: 6px; background: var(--panel); position: relative; border: 1px solid var(--edge); }
+.bar2 .d { position: absolute; left: 0; top: 0; bottom: 0; background: #f0b04a55; border-right: 1px solid var(--amber); }
+.bar2 .t { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(90deg, #e2654b99 0 1px, transparent 1px 3px); border-left: 1px solid var(--red); border-right: 1px solid var(--red); }
+.fr { display: grid; grid-template-columns: 1fr auto; gap: 2px 6px; text-align: left; padding: 3px 5px; background: var(--panel2); border: 1px solid transparent; }
+.fr:hover { border-color: var(--edge-hi); }
+.fr .bar2 { grid-column: 1 / -1; }
+.log p { margin: 0 0 2px; }
+.log h4 { margin: 4px 0 2px; font-weight: 400; color: var(--amber); }
+.log .good { color: var(--good); } .log .bad { color: var(--red); }
+
+/* 底栏 */
+#bar { position: absolute; left: 6px; top: 324px; width: 628px; height: 30px; display: flex; align-items: center; gap: 10px; padding: 0 3px 0 8px; }
+#bar .night { white-space: nowrap; display: flex; gap: 4px; align-items: center; }
+#bar .ticker { flex: 1; min-width: 0; text-align: left; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#bar .ticker:hover { color: var(--ink); }
+#end { padding: 1px 12px; }
+
+/* 对话框 */
+#ov { position: absolute; inset: 0; background: #05060ad8; display: grid; place-items: center; z-index: 10; }
+#dlg { width: 380px; max-height: 320px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; border-color: var(--amber-dk); }
+#dlg h2 { margin: 0; font-weight: 400; font-size: 24px; line-height: 26px; color: var(--amber); display: flex; gap: 8px; align-items: center; }
+#dlg h2 img.ic { width: 16px; height: 16px; }
+#dlg p { margin: 0; }
+#dlg .lines { display: flex; flex-direction: column; gap: 2px; max-height: 180px; padding-right: 4px; }
+#dlg .lines .good { color: var(--good); } #dlg .lines .bad { color: var(--red); }
+#dlg .choices { display: flex; flex-direction: column; gap: 4px; }
+#dlg .choices .btn { text-align: left; }
+#dlg .choices small { color: var(--dim); margin-left: 6px; font-size: 12px; }
+#dlg .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+#dlg textarea { width: 100%; height: 52px; background: var(--sunk); color: var(--ink); border: 1px solid var(--edge); font: 10px/12px ui-monospace, Menlo, monospace; padding: 4px; resize: none; }
+#dlg input[type=file] { font: inherit; color: var(--dim); max-width: 190px; }
+.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.card { display: flex; flex-direction: column; gap: 4px; padding: 6px; min-height: 110px; text-align: left; }
+.card .ln { align-self: flex-start; padding: 0 3px; border: 1px solid currentColor; line-height: 12px; }
+.card b { font-weight: 400; color: var(--amber); }
+.card span.d { color: var(--ink); }
+.ln-堡垒 { color: #74a6dc; } .ln-拆迁 { color: #c88a3e; } .ln-大家庭 { color: var(--kin); } .ln-远征 { color: var(--good); } .ln-通用 { color: var(--dim); }
+.rules { display: flex; flex-direction: column; gap: 4px; }
+#dlg ol { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.big { font-size: 24px; line-height: 26px; color: var(--amber); }
+#fade { position: absolute; inset: 0; background: #02030a; opacity: 0; pointer-events: none; z-index: 9; }
+#fade.go { animation: night 1s ease-in-out; }
+@keyframes night { 0% { opacity: 0 } 45% { opacity: .9 } 100% { opacity: 0 } }
+@media (prefers-reduced-motion: reduce) { #fade.go { animation: none; } }
+
+#rotate { position: fixed; inset: 0; z-index: 50; background: var(--void); display: grid; place-items: center; text-align: center; box-sizing: border-box;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 16px; }
+#rotate > div { display: flex; flex-direction: column; gap: 12px; align-items: center; max-width: 280px; }
+#rotate p { margin: 0; }
+#rotate .phone { width: 36px; height: 60px; border: 3px solid var(--amber); }
+@media (prefers-reduced-motion: no-preference) { #rotate .phone { animation: tilt 1.8s ease-in-out infinite; } }
+@keyframes tilt { 0%, 30% { transform: rotate(0) } 60%, 100% { transform: rotate(-90deg) } }
+</style>
+
+<div id="fit"><div id="scaler"><div id="stage">
+  <header id="hud"></header>
+  <aside id="roster" class="frame">
+    <div class="ptitle"><span>住户</span><span id="pcount"></span></div>
+    <div id="people" class="scroll"></div>
+  </aside>
+  <section id="mapwrap">
+    <canvas id="map" width="128" height="128" tabindex="0" aria-label="街区地图，方向键移动选择"></canvas>
+    <div id="tip" hidden></div>
+    <div id="mapcap"></div>
+  </section>
+  <aside id="side" class="frame">
+    <div id="tabs" role="tablist">
+      <button role="tab" data-tab="tile">地块</button>
+      <button role="tab" data-tab="night">今晚</button>
+      <button role="tab" data-tab="log">记事</button>
+    </div>
+    <div id="sidebody" class="scroll"></div>
+  </aside>
+  <footer id="bar" class="frame"></footer>
+  <div id="fade"></div>
+  <div id="ov" hidden><div id="dlg" class="frame" role="dialog" aria-modal="true"></div></div>
+</div></div></div>
+<div id="rotate" hidden><div>
+  <div class="phone"></div>
+  <p>把手机横过来玩</p>
+  <p class="dim">这是一块横版的游戏画面，竖着看字会太小。</p>
+  <button class="btn" id="rotate-skip">直接玩</button>
+</div></div>
+
+<script>
+/*SIM*/
+</script>
+<script>
+(() => {
+  'use strict';
+  const KEY = 'molouzhang.save.v1';
+  const $ = id => document.getElementById(id);
+  const T = Sim.TYPES;
+  const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let S, PLAN, selTile = { x: 1, y: 6 }, selSurv = null, mode = null, tab = 'tile', report = null, overSeen = false, hover = null;
+
+  // ---------- 存取 ----------
+  function save() { try { localStorage.setItem(KEY, Sim.serialize(S)); } catch (e) {} }
+  function load() { try { const raw = localStorage.getItem(KEY); return raw ? Sim.deserialize(raw) : null; } catch (e) { return null; } }
+  function commit(ns) { S = ns; save(); render(); }
+
+  // ---------- 像素图标 ----------
+  const ICONS = {
+    food:  ['..####..', '.#oooo#.', '.######.', '.#yyyy#.', '.#yYyy#.', '.#yyyy#.', '.######.', '........'],
+    mat:   ['........', '.bbbbbb.', '.bBBBBb.', '.bbbbbb.', '..bBBBbb', '..bbbbbb', '........', '........'],
+    bed:   ['........', '#.......', '#ww.....', '#wwBBBB#', '########', '#......#', '........', '........'],
+    gate:  ['.######.', '#g#g#g##', '#g#g#g##', '#g#g#g##', '#g#g#g##', '#g#g#g##', '########', '........'],
+    moon:  ['..yyy...', '.yy.....', 'yy......', 'yy......', 'yy......', '.yy.....', '..yyy...', '........'],
+    sun:   ['...y....', '.y.y.y..', '..yyy...', 'yyyyyyy.', '..yyy...', '.y.y.y..', '...y....', '........'],
+    skull: ['.zzzzz..', 'zzzzzzz.', 'z..z..z.', 'zzzzzzz.', '.zz.zz..', '.z.z.z..', '........', '........'],
+    heli:  ['wwwwwww.', '...w....', '.wwwww..', 'wwwwbbw.', '.wwwww..', '..w.w...', '.wwwww..', '........'],
+    flag:  ['.kkkk...', '.kkkkk..', '.kkkk...', '.w......', '.w......', '.w......', 'www.....', '........'],
+    fist:  ['.r.r.r..', 'rrrrrr..', 'rrrrrrr.', 'rrrrrrr.', '.rrrrr..', '.rrrr...', '........', '........'],
+    bag:   ['..www...', '.w...w..', 'yyyyyyy.', 'yYYYYYy.', 'yYYYYYy.', 'yyyyyyy.', '........', '........'],
+    ham:   ['.ggggg..', '.ggggg..', '...b....', '...b....', '...b....', '...b....', '........', '........'],
+  };
+  const PAL = { '#': '#c9c2ad', o: '#8b91a3', y: '#f0b04a', Y: '#ffd88a', b: '#9c6420', B: '#c88a3e', w: '#ebe4cf', g: '#8a93a8', z: '#a9c843', k: '#ea92b2', r: '#e2654b' };
+  const IC = {};
+  for (const [k, rows] of Object.entries(ICONS)) {
+    const c = document.createElement('canvas'); c.width = 8; c.height = 8; const g = c.getContext('2d');
+    rows.forEach((r, y) => [...r].forEach((ch, x) => { if (PAL[ch]) { g.fillStyle = PAL[ch]; g.fillRect(x, y, 1, 1); } }));
+    IC[k] = c.toDataURL();
+  }
+  const ic = (k, label = '') => `<img class="ic" src="${IC[k]}" alt="${label}">`;
+
+  // ---------- 头像 ----------
+  const SKIN = ['#f1c9a0', '#dcae84', '#c48d64', '#a8724e'];
+  const HAIR = ['#2a2420', '#3d2c22', '#5a3a26', '#1b1b25', '#6b4a2e'];
+  const SHIRT = { '退休警察': '#3f5f9a', '水电工': '#c4762f', '夜市摊贩': '#c94f45', '护理师': '#7fbcb0', '外送员': '#5aa65a', '国中老师': '#8a7cc4', '健身教练': '#d44f7c', '装潢师傅': '#9a8a5a', '里长': '#b0a070', '大学生': '#5e88c4', '保全': '#4a4f5c', '菜贩': '#6c9a3a' };
+  const hsh = n => { let h = 2166136261; for (const ch of String(n)) h = Math.imul(h ^ ch.charCodeAt(0), 16777619); return h >>> 0; };
+  function portrait(c, v) {
+    const g = c.getContext('2d'), h = hsh(v.name);
+    const old = /^老|王太太/.test(v.name);
+    const skin = SKIN[h % 4], hair = old ? '#b9b6ad' : HAIR[(h >> 3) % 5], shirt = SHIRT[v.job] || '#777';
+    const p = (x, y, w, hh, col) => { g.fillStyle = col; g.fillRect(x, y, w, hh); };
+    p(0, 0, 12, 12, '#131620');
+    p(3, 2, 6, 1, hair); p(2, 3, 8, 1, hair);
+    p(2, 4, 8, 3, skin); p(2, 4, 1, 2, hair); p(9, 4, 1, 2, hair);
+    if ((h >> 6) % 2 && !old) { p(2, 4, 1, 4, hair); p(9, 4, 1, 4, hair); }
+    p(4, 5, 1, 1, '#1a1410'); p(7, 5, 1, 1, '#1a1410');
+    p(5, 7, 2, 1, skin);
+    p(1, 8, 10, 4, shirt); p(5, 8, 2, 1, skin);
+    if (v.inj > 0) { p(3, 3, 6, 1, '#f4f1e8'); p(6, 2, 1, 1, '#e2654b'); }
+    if (v.sulk > 0) p(3, 6, 1, 1, '#74a6dc');
+  }
+
+  // ---------- 地图 ----------
+  const cv = $('map'), ctx = cv.getContext('2d');
+  const COL = { base: '#b98a45', house: '#6d7884', school: '#9a6c52', market: '#9b4f37', mart: '#3f6694', hospital: '#cfcdc4',
+    police: '#34507c', hardware: '#7c6440', temple: '#9a3a2a', radio: '#5c6166', ruin: '#4a4440', park: '#2e4729' };
+  const TASKC = { defend: '#74a6dc', fortify: '#f0b04a', scav: '#ebe4cf', clear: '#e2654b', claim: '#f0b04a', strip: '#b07a3a', rescue: '#ea92b2' };
+  const isBaseT = t => t.t === 'base';
+  function hash(x, y, k) { let h = (x * 374761393 + y * 668265263 + k * 2147483647 + S.seed) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
+  const px = (x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(x, y, w, h); };
+  function shade(hex, d) { const n = parseInt(hex.slice(1), 16); const f = v => Math.max(0, Math.min(255, v + d)); return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`; }
+  function frameIn(ox, oy, c) { px(ox, oy, 16, 1, c); px(ox, oy + 15, 16, 1, c); px(ox, oy, 1, 16, c); px(ox + 15, oy, 1, 16, c); }
+
+  function drawTile(x, y, tk) {
+    const t = Sim.tile(S, x, y), ox = x * 16, oy = y * 16, lit = t.owned;
+    px(ox, oy, 16, 16, '#1d2027');
+    if (hash(x, y, 77) > 0.6) px(ox + 7, oy + 15, 2, 1, '#34373e');
+    const c = COL[t.t];
+    if (t.t === 'park') {
+      px(ox + 1, oy + 1, 14, 14, lit ? '#3e5f2c' : '#26391f');
+      for (let i = 0; i < 4; i++) { const tx = ox + 2 + Math.floor(hash(x, y, i) * 10), ty = oy + 2 + Math.floor(hash(x, y, i + 9) * 9); px(tx, ty, 3, 3, lit ? '#6f9a45' : '#35552c'); px(tx + 1, ty + 3, 1, 1, '#5a4430'); }
+      if (lit) for (let i = 0; i < 3; i++) px(ox + 3 + i * 4, oy + 12, 3, 1, '#8fb35a');
+    } else if (t.t === 'ruin') {
+      for (let i = 0; i < 14; i++) { const rx = ox + 1 + Math.floor(hash(x, y, i) * 13), ry = oy + 3 + Math.floor(hash(x, y, i + 30) * 11); px(rx, ry, 2, 1 + (i % 2), i % 3 ? '#4a4440' : '#5e554c'); }
+      px(ox + 3, oy + 4, 3, 7, '#3c3733'); px(ox + 4, oy + 3, 1, 1, '#3c3733');
+    } else {
+      const top = t.t === 'temple' ? 4 : t.t === 'radio' ? 7 : 2;
+      px(ox + 2, oy + top + 1, 12, 14 - top, '#0d0f14');
+      px(ox + 1, oy + top, 12, 14 - top, c);
+      px(ox + 1, oy + top, 12, 1, shade(c, 25));
+      px(ox + 12, oy + top, 1, 14 - top, shade(c, -35));
+      for (let wy = oy + top + 2; wy < oy + 12; wy += 3) for (let wx = ox + 3; wx < ox + 12; wx += 3) {
+        let on = lit && hash(wx, wy, 3) > 0.35;
+        if (on && !REDUCED && hash(wx, wy, tk >> 2) > 0.93) on = false;
+        px(wx, wy, 1, 1, on ? '#ffd27a' : '#191c22');
+      }
+      px(ox + 6, oy + 12, 2, 3, '#14161b');
+      if (t.gutted) { px(ox + 2, oy + top + 1, 4, 3, '#1d2027'); px(ox + 9, oy + 9, 3, 4, '#1d2027'); }
+      if (t.t === 'hospital') { px(ox + 6, oy + top + 1, 2, 4, '#c8423a'); px(ox + 5, oy + top + 2, 4, 2, '#c8423a'); }
+      if (t.t === 'police') { px(ox + 1, oy + top + 1, 12, 1, '#e8e6df'); px(ox + 6, oy + top - 1, 2, 1, (tk % 2) ? '#d8463a' : '#4a7ad8'); }
+      if (t.t === 'market' || t.t === 'mart') for (let i = 0; i < 6; i++) px(ox + 1 + i * 2, oy + 10, 2, 2, i % 2 ? '#e8e2d2' : (t.t === 'market' ? '#c4553a' : '#4d86c6'));
+      if (t.t === 'hardware') px(ox + 3, oy + top + 1, 8, 2, '#d8b453');
+      if (t.t === 'temple') { px(ox, oy + 3, 15, 2, '#7d2a1f'); px(ox + 2, oy + 2, 11, 1, '#d9a63a'); px(ox, oy + 2, 1, 1, '#d9a63a'); px(ox + 14, oy + 2, 1, 1, '#d9a63a'); if (lit) px(ox + 6, oy + 9, 2, 2, '#ffb04a'); }
+      if (t.t === 'radio') { px(ox + 6, oy + 1, 2, 6, '#8a9096'); px(ox + 4, oy + 3, 6, 1, '#8a9096'); px(ox + 6, oy, 2, 1, S.rescueDay ? '#ffd27a' : (tk % 2 ? '#c8423a' : '#5a1f1a')); }
+      if (t.t === 'school') { px(ox + 1, oy + 13, 12, 2, '#6a4c3a'); px(ox + 12, oy + 1, 1, 3, '#cfcdc4'); px(ox + 13, oy + 1, 2, 1, '#c8423a'); }
+      if (t.t === 'base') { for (let wx = ox + 2; wx < ox + 12; wx += 2) px(wx, oy + 5, 1, 7, '#2a2a2a'); px(ox + 1, oy + 1, 12, 1, '#7c5c2e'); px(ox + 9, oy, 3, 1, '#7c5c2e'); }
+    }
+    if (!t.seen) { px(ox, oy, 16, 16, 'rgba(8,9,12,0.74)'); return; }
+    // （尖叫者开局就被标为已知，所以会在下面画出来）
+    const reach = Sim.reachable(S, x, y);
+    if (!t.owned) px(ox, oy, 16, 16, reach ? 'rgba(8,9,12,0.25)' : 'rgba(8,9,12,0.5)');
+    for (let i = 0; i < t.z; i++) {
+      const j = REDUCED ? 0 : Math.round(hash(x, y, i + (tk >> 1) * 31) * 2 - 1);
+      const zx = ox + 1 + Math.floor(hash(x, y, i + 50) * 12) + j, zy = oy + 3 + Math.floor(hash(x, y, i + 80) * 10);
+      px(zx, zy, 2, 1, '#b6d64a'); px(zx, zy + 1, 2, 2, '#4f5e22');
+    }
+    if (t.scream) {
+      const sx = ox + 7, sy = oy + 6;
+      px(sx, sy, 2, 2, '#e9e1f2'); px(sx, sy + 1, 2, 1, '#b02a2a'); px(sx - 1, sy + 2, 4, 1, '#8c7aa0'); px(sx, sy + 3, 2, 3, '#6d5d80');
+      if (REDUCED || tk % 2) { px(sx - 3, sy - 1, 1, 3, '#e2654b'); px(sx + 4, sy - 1, 1, 3, '#e2654b'); px(sx - 5, sy - 2, 1, 5, '#e2654b88'); px(sx + 6, sy - 2, 1, 5, '#e2654b88'); }
+    }
+    if (!t.owned && t.prog > 0) { const w = Math.max(1, Math.round(14 * t.prog / T[t.t].cost)); px(ox + 1, oy + 14, 14, 1, '#2a2d30'); px(ox + 1, oy + 14, w, 1, '#f0b04a'); }
+    if (t.owned && !isBaseT(t)) for (let i = 0; i < t.bar; i++) { px(ox + 1 + i * 3, oy + 13, 2, 2, '#c9b48a'); px(ox + 1 + i * 3, oy + 13, 2, 1, '#e6d6ae'); }
+    const here = S.surv.filter(v => Sim.ready(v) && v.task.x === x && v.task.y === y);
+    here.forEach((v, i) => { const hx = ox + 2 + i * 3, hy = oy + 1; px(hx, hy, 1, 1, '#f1c9a0'); px(hx, hy + 1, 1, 2, v.id === selSurv && tk % 2 ? '#ffffff' : TASKC[v.task.k]); });
+    if (S.surv.some(v => v.want && v.want.x === x && v.want.y === y)) { px(ox + 12, oy + 1, 1, 7, '#ebe4cf'); px(ox + 13, oy + 1, 3, 3, '#ea92b2'); }
+    if (t.owned) frameIn(ox, oy, '#f0b04a');
+    const f = PLAN.fronts.find(f => f.x === x && f.y === y);
+    if (f && f.state !== 'safe' && (REDUCED || tk % 2)) {
+      const col = f.state === 'fail' ? '#e2654b' : '#f0b04a';
+      const open = (a, b) => { const n = Sim.tile(S, a, b); return n && !n.owned; };
+      if (open(x, y - 1)) px(ox, oy, 16, 2, col);
+      if (open(x, y + 1)) px(ox, oy + 14, 16, 2, col);
+      if (open(x - 1, y)) px(ox, oy, 2, 16, col);
+      if (open(x + 1, y)) px(ox + 14, oy, 2, 16, col);
+    }
+  }
+  let tick = 1;
+  function drawMap() {
+    ctx.imageSmoothingEnabled = false;
+    for (let y = 0; y < Sim.H; y++) for (let x = 0; x < Sim.W; x++) drawTile(x, y, tick);
+    if (hover && (hover.x !== selTile.x || hover.y !== selTile.y)) frameIn(hover.x * 16, hover.y * 16, 'rgba(235,228,207,.5)');
+    const sx = selTile.x * 16, sy = selTile.y * 16, o = (!REDUCED && tick % 2) ? 1 : 0;
+    for (const [a, b, w, h] of [[0, 0, 5, 1], [0, 0, 1, 5], [11, 0, 5, 1], [15, 0, 1, 5], [0, 15, 5, 1], [0, 11, 1, 5], [11, 15, 5, 1], [15, 11, 1, 5]])
+      px(sx + a + (a ? o : -o), sy + b + (b ? o : -o), w, h, '#ffffff');
+  }
+  setInterval(() => { tick++; if (S && PLAN) drawMap(); }, 450);
+
+  function tileAt(e) {
+    const r = cv.getBoundingClientRect();
+    const x = Math.floor((e.clientX - r.left) / r.width * Sim.W), y = Math.floor((e.clientY - r.top) / r.height * Sim.H);
+    return x >= 0 && y >= 0 && x < Sim.W && y < Sim.H ? { x, y } : null;
+  }
+  cv.addEventListener('click', e => { const p = tileAt(e); if (p) { selTile = p; tab = 'tile'; render(); } });
+  cv.addEventListener('mousemove', e => {
+    const p = tileAt(e), tip = $('tip');
+    if (!p) { tip.hidden = true; hover = null; return; }
+    if (!hover || hover.x !== p.x || hover.y !== p.y) { hover = p; drawMap(); }
+    const t = Sim.tile(S, p.x, p.y);
+    tip.textContent = !t.seen ? '未探明' : Sim.tname(t) + (t.owned ? ' · 我方' : t.z ? ` · 丧尸 ${t.z}` : ' · 安全') + (t.scream ? ' · 尖叫者' : '');
+    tip.hidden = false;
+    tip.style.left = Math.max(0, Math.min(256 - tip.offsetWidth, p.x * 32 + 16 - tip.offsetWidth / 2)) + 'px';
+    tip.style.top = (p.y === 0 ? 34 : p.y * 32 - 18) + 'px';
+  });
+  cv.addEventListener('mouseleave', () => { $('tip').hidden = true; hover = null; drawMap(); });
+  cv.addEventListener('keydown', e => {
+    const d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+    if (!d) return;
+    e.preventDefault();
+    selTile = { x: Math.max(0, Math.min(Sim.W - 1, selTile.x + d[0])), y: Math.max(0, Math.min(Sim.H - 1, selTile.y + d[1])) };
+    tab = 'tile'; render();
+  });
+
+  // ---------- 文本工具 ----------
+  const pct = p => Math.round(p * 100) + '%';
+  const riskCls = p => p >= 0.3 ? 'c-red' : p >= 0.12 ? 'c-amber' : 'c-good';
+  const where = (x, y) => Sim.tname(Sim.tile(S, x, y));
+  const LABEL = { scav: '搜刮', clear: '清理', claim: '收复', strip: '拆除', defend: '驻守', fortify: '加固', rescue: '救人' };
+  const daysLeft = w => w.until - S.day;
+  function taskText(v) {
+    if (v.inj > 0) return { t: `受伤 · 休养 ${v.inj} 天`, hurt: true };
+    if (v.sulk > 0) return { t: '在房里赌气', hurt: true };
+    const k = v.task.k, at = v.task.x != null;
+    if (k === 'defend') return { t: at ? `驻守 ${where(v.task.x, v.task.y)}` : '留守据点' };
+    if (k === 'fortify') return { t: at ? `堆路障 ${where(v.task.x, v.task.y)}` : '加固据点' };
+    return { t: `${LABEL[k]} ${where(v.task.x, v.task.y)}` };
+  }
+  const relOf = id => S.rel.filter(r => r[0] === id || r[1] === id).map(r => {
+    const o = Sim.byId(S, r[0] === id ? r[1] : r[0]);
+    return o ? `<span class="${r[2] === 'friend' ? 'c-good' : 'c-red'}">${r[2] === 'friend' ? '旧识' : '过节'}${o.name}</span>` : '';
+  }).filter(Boolean).join(' ');
+
+  // ---------- 渲染 ----------
+  function render() {
+    PLAN = Sim.nightPlan(S);
+    if (selSurv != null && !Sim.byId(S, selSurv)) selSurv = null;
+    drawMap(); renderHud(); renderPeople(); renderCap(); renderSide(); renderBar(); renderOverlay();
+  }
+
+  function renderHud() {
+    const inc = Sim.income(S), net = inc.food - Sim.foodUse(S), beds = Sim.beds(S);
+    const left = S.rescueDay ? S.rescueDay - S.day : Sim.GOAL - S.day + 1;
+    const surge = 7 - (S.day % 7 || 7), pa = Sim.arrivalChance(S);
+    $('hud').innerHTML = `
+      <span class="res">${ic('sun')} 第 ${Math.min(S.day, Sim.GOAL)}<small>/${Sim.GOAL}天</small></span>
+      <span class="res" title="食物：库存 / 每天净变化">${ic('food', '食物')}<span class="${S.food + net < 0 ? 'c-red' : ''}">${S.food}</span><small class="${net < 0 ? 'c-amber' : ''}">${net >= 0 ? '+' : ''}${net}</small></span>
+      <span class="res" title="材料">${ic('mat', '材料')}${S.mat}${inc.mat ? `<small>+${inc.mat}</small>` : ''}</span>
+      <span class="res" title="住户 / 床位">${ic('bed', '床位')}${S.surv.length}<small>/${beds}</small></span>
+      <span class="res" title="铁门耐久">${ic('gate', '铁门')}<span class="hp${S.wall <= 4 ? ' low' : ''}"><i style="width:${Math.max(0, S.wall / S.wallMax * 100)}%"></i></span><small>${S.wall}</small></span>
+      <span class="spacer"></span>
+      ${pa > 0 ? `<span class="res c-kin" title="明早有人来投奔的机会">投奔${Math.round(pa * 100)}%</span>` : ''}
+      ${S.brute ? `<span class="res c-red" title="今晚的尸群里有巨汉：街区路障只算一半，被撞时损耗翻倍，铁门受损更重">${ic('fist', '巨汉')}今晚巨汉</span>` : ''}
+      <span class="res ${surge === 0 ? 'c-red' : ''}">${ic('skull', '尸潮')}${surge === 0 ? '今晚尸潮' : `尸潮${surge}天`}</span>
+      <span class="res">${ic('heli', '救援')}${S.rescueDay ? '直升机' : '救援'}${left}天</span>
+      <span class="menu"><button class="btn" id="b-rules">楼规${S.rules.length}</button><button class="btn" id="b-help">说明</button><button class="btn" id="b-save">存档</button><button class="btn" id="b-new">新局</button></span>`;
+    $('b-help').onclick = () => { mode = 'help'; renderOverlay(); };
+    $('b-rules').onclick = () => { mode = 'rules'; renderOverlay(); };
+    $('b-save').onclick = () => { mode = 'save'; renderOverlay(); };
+    $('b-new').onclick = () => { mode = 'new'; renderOverlay(); };
+  }
+
+  function renderPeople() {
+    $('pcount').textContent = `${S.surv.length} 人`;
+    const box = $('people'), top = box.scrollTop;
+    box.innerHTML = S.surv.map(v => {
+      const tt = taskText(v), out = !Sim.ready(v);
+      const T2 = Sim.TRAITS[v.trait];
+      return `<button class="pc${v.id === selSurv ? ' sel' : ''}${out ? ' out' : ''}" data-id="${v.id}" aria-pressed="${v.id === selSurv}" title="${v.job} · ${T2 ? T2.name + '：' + T2.desc : ''}">
+        <canvas width="12" height="12" data-pid="${v.id}"></canvas>
+        <span class="nm"><b>${v.name}</b>${T2 ? `<span class="trait">${T2.name}</span>` : `<span>${v.job}</span>`}</span>
+        <span class="sk">${ic('fist', '战斗')}<em>${v.fight}</em>${ic('bag', '搜刮')}<em>${v.scav}</em>${ic('ham', '建造')}<em>${v.build}</em></span>
+        <span class="tk${tt.hurt ? ' hurt' : ''}">${tt.t}</span>
+        ${v.want ? `<span class="kin" title="${v.want.txt}">${ic('flag', '牵挂')}</span>` : ''}
+      </button>`;
+    }).join('') || '<p class="dim">楼里已经没有人了。</p>';
+    box.scrollTop = top;
+    box.querySelectorAll('canvas[data-pid]').forEach(c => portrait(c, Sim.byId(S, +c.dataset.pid)));
+    box.querySelectorAll('.pc').forEach(el => el.onclick = () => {
+      const id = +el.dataset.id;
+      selSurv = selSurv === id ? null : id;
+      const v = Sim.byId(S, id);
+      if (selSurv != null && v.task.x != null) selTile = { x: v.task.x, y: v.task.y };
+      tab = 'tile'; render();
+    });
+  }
+
+  function renderCap() {
+    const v = selSurv != null ? Sim.byId(S, selSurv) : null;
+    if (!v) { $('mapcap').innerHTML = `<span>先在左边选人，再点地块派工。</span><span>悬停地块看名字，方向键也能移动。</span>`; return; }
+    const T2 = Sim.TRAITS[v.trait], rel = relOf(v.id);
+    $('mapcap').innerHTML = `<span>派 <span class="c-amber">${v.name}</span>（${v.job}）去哪？点地块。${rel ? ' ' + rel : ''}</span>
+      <span>${T2 ? `<span style="color:#d6b98a">${T2.name}</span>：${T2.desc}` : ''}</span>`;
+  }
+
+  // ---------- 右侧面板 ----------
+  const TASKS = {
+    rescue: ['救人', '把被困的人接回来'],
+    defend: ['驻守', '夜里守在这里'],
+    fortify: ['加固', '耗 2 材料'],
+    scav: ['搜刮', '带回食物和材料'],
+    clear: ['清理丧尸', '清干净才能收复或拆除'],
+    claim: ['收复', '封窗、清路、接水电'],
+    strip: ['拆除', '换成材料'],
+  };
+  const STATE_TXT = { safe: '守得住', risk: '看运气', fail: '守不住' };
+  const STATE_CLS = { safe: 'c-good', risk: 'c-amber', fail: 'c-red' };
+  const WANT_HOW = { rescue: '派人来救人，谁去都行。', fetch: '来这里搜刮就能顺手找到。', reclaim: '收复这里就算达成。', protect: '期限内别拆这里就行。' };
+  function relevant(t, x, y, k) {
+    const base = isBaseT(t);
+    if (k === 'defend') return t.owned;
+    if (k === 'fortify') return t.owned && (base || t.bar < Sim.barMax(S));
+    if (k === 'strip') return !base && t.strip > 0 && t.z === 0;
+    if (k === 'scav') return t.food + t.mat > 0;
+    if (k === 'clear') return !t.owned && t.z > 0 && Sim.frontier(S, x, y);
+    if (k === 'claim') return !t.owned && t.z === 0 && Sim.frontier(S, x, y);
+    if (k === 'rescue') return S.surv.some(u => u.want && u.want.k === 'rescue' && u.want.x === x && u.want.y === y);
+  }
+  const onTile = (v, x, y) => isBaseT(Sim.tile(S, x, y)) ? (v.task.x == null || (v.task.x === x && v.task.y === y)) : (v.task.x === x && v.task.y === y);
+
+  function renderSide() {
+    $('tabs').querySelectorAll('button').forEach(b => { b.setAttribute('aria-selected', b.dataset.tab === tab); b.onclick = () => { tab = b.dataset.tab; renderSide(); }; });
+    const nFail = PLAN.fronts.filter(f => f.state === 'fail').length;
+    $('tabs').querySelector('[data-tab="night"]').innerHTML = `今晚${nFail ? ` <span class="c-red">!${nFail}</span>` : ''}`;
+    const body = $('sidebody');
+    body.innerHTML = tab === 'tile' ? tileHtml() : tab === 'night' ? nightHtml() : logHtml();
+    body.scrollTop = 0;
+    body.querySelectorAll('[data-task]').forEach(b => b.onclick = () => commit(Sim.setTask(S, selSurv, { k: b.dataset.task, x: selTile.x, y: selTile.y })));
+    body.querySelectorAll('[data-recall]').forEach(b => b.onclick = () => commit(Sim.setTask(S, +b.dataset.recall, { k: 'defend' })));
+    body.querySelectorAll('[data-fx]').forEach(b => b.onclick = () => { selTile = { x: +b.dataset.fx, y: +b.dataset.fy }; tab = 'tile'; render(); });
+  }
+
+  const meter = (def, lo, hi) => { const max = Math.max(hi, def) + 2; return `<span class="bar2"><span class="d" style="width:${def / max * 100}%"></span><span class="t" style="left:${lo / max * 100}%;width:${Math.max(1, hi - lo) / max * 100}%"></span></span>`; };
+
+  function tileHtml() {
+    const { x, y } = selTile, t = Sim.tile(S, x, y), ty = T[t.t], base = isBaseT(t), reach = Sim.reachable(S, x, y);
+    let chip;
+    if (!t.seen) chip = '<span class="chip dim">未探明</span>';
+    else if (base) chip = '<span class="chip c-amber">据点</span>';
+    else if (t.owned) chip = '<span class="chip c-amber">我方</span>';
+    else if (t.z > 0) chip = `<span class="chip c-z">丧尸 ${t.z}</span>`;
+    else chip = '<span class="chip c-good">暂时安全</span>';
+    if (t.scream) chip += '<span class="chip c-red">尖叫者</span>';
+    let h = `<div class="th"><b>${Sim.tname(t)}</b>${chip}<span class="dim">${x + 1},${y + 1}</span></div>
+      <div class="desc">${t.gutted ? '拆了一部分，原本的用处没了。' : ty.desc}${!t.owned && t.prog ? ` 施工 ${t.prog}/${ty.cost}。` : ''}</div>`;
+    if (t.scream) h += `<div class="box fail"><span class="c-red">尖叫者</span><br><span class="dim">它让这里和四周的丧尸长得更快，夜里会把尸群引向它那一侧。把这一格清空就能解决它。</span></div>`;
+    if (t.seen && !base) h += `<div class="kv">${ic('food')}${t.food}　${ic('mat')}${t.mat}${t.strip > 0 ? `　<span class="dim">可拆 ${t.strip}</span>` : ''}</div>`;
+    for (const u of S.surv.filter(u => u.want && u.want.x === x && u.want.y === y)) {
+      const d = daysLeft(u.want);
+      h += `<div class="box kin"><span class="c-kin">${ic('flag')} ${u.name}：${u.want.txt}</span><br><span class="dim">${d <= 0 ? '今晚是最后期限。' : `还剩 ${d} 天。`}${WANT_HOW[u.want.k]}${reach ? '' : '先把地盘推过来。'}</span></div>`;
+    }
+    if (t.owned) {
+      const f = PLAN.fronts.find(f => f.x === x && f.y === y);
+      if (f) {
+        const d = f.def;
+        h += `<div class="box ${f.state}">${ic('moon')} 今晚冲击 ${f.lo}–${f.hi}，防御 ${d.total}，<span class="${STATE_CLS[f.state]}">${STATE_TXT[f.state]}</span>
+          <div style="margin:3px 0">${meter(d.total, f.lo, f.hi)}</div>
+          <span class="dim">${base ? '工事' : '路障'} ${d.barRaw !== d.bar ? `${d.barRaw}→<span class="c-red">${d.bar}</span>（巨汉）` : d.bar}${base ? '' : '/' + Sim.barMax(S)} · 建筑 ${d.place} · 驻守 ${d.n} 人 +${d.people}</span></div>`;
+      } else h += `<div class="box safe dim">${ic('moon')} 在地盘内侧，今晚安全。</div>`;
+    }
+    if (!t.seen || !reach) return h + `<div class="dim">离地盘太远。先收复相邻的街区。</div>`;
+    const v = selSurv != null ? Sim.byId(S, selSurv) : null;
+    const keys = (t.owned ? ['rescue', 'defend', 'fortify', 'scav', 'strip'] : ['rescue', 'scav', 'clear', 'claim', 'strip']).filter(k => relevant(t, x, y, k));
+    if (!keys.length) return h + `<div class="dim">这里没什么可做的。</div>`;
+    if (!v) h += `<div class="c-amber">在左边选一个住户来派工。</div>`;
+    h += `<div class="acts">` + keys.map(k => {
+      let [name, note] = TASKS[k];
+      if (k === 'fortify') { name = base ? '加固工事' : '堆路障'; note = base ? '工事+1~2，修铁门，耗 2 材料' : `路障 ${t.bar}/${Sim.barMax(S)}，+1~2，耗 2 材料`; }
+      if (k === 'defend' && base) name = '留守';
+      if (k === 'strip') note = S.surv.some(u => u.want && u.want.k === 'protect' && u.want.x === x && u.want.y === y) ? '有人不准拆，拆了会结仇' : (t.owned ? '换材料，加成立刻没了' : '一次拿走大量材料');
+      const ok = v && Sim.canDo(S, v, k, x, y);
+      const already = v && v.task.k === k && onTile(v, x, y);
+      let sub = note, risk = '';
+      if (ok) {
+        const p = Sim.preview(S, v, k, x, y);
+        sub = p.gain || note;
+        if (k === 'scav' || k === 'clear' || k === 'rescue') risk = `<span class="${riskCls(p.risk)}">伤${pct(p.risk)}</span>`;
+      }
+      const label = v && already ? `${v.name}正在${name}` : name;
+      return `<button class="btn act" data-task="${k}" ${ok && !already ? '' : 'disabled'}><span>${label}</span><span>${risk}</span><small>${v && !Sim.ready(v) ? `${v.name}现在出不了门` : sub}</small></button>`;
+    }).join('') + `</div>`;
+    const here = S.surv.filter(u => Sim.ready(u) && onTile(u, x, y) && !(base && u.task.x == null && u.task.k === 'defend'));
+    if (here.length) h += `<div class="here dim">在这里：${here.map(u => `${u.name}·${LABEL[u.task.k]} <button data-recall="${u.id}">叫回</button>`).join('，')}</div>`;
+    return h;
+  }
+
+  function nightHtml() {
+    const P = PLAN, fr = P.fronts;
+    const nFail = fr.filter(f => f.state === 'fail').length, nRisk = fr.filter(f => f.state === 'risk').length;
+    let h = `<div class="dim">边界 ${fr.length} 处，接触面 ${P.edges} 条，尸群约 ${P.lo}–${P.hi}${P.mult > 1 ? `（边界和尖叫者让尸群多了 ${Math.round((P.mult - 1) * 100)}%）` : ''}。右边数字是 防御 / 冲击。</div>`;
+    if (P.brute) h += `<div class="box fail"><span class="c-red">今晚有巨汉</span><br><span class="dim">街区路障只算一半，被撞垮时损耗翻倍，据点铁门受损也更重。今晚靠人守。</span></div>`;
+    if (P.screamers) h += `<div class="box fail dim">${P.screamers} 只尖叫者就在地盘边上，正把尸群往这边引。</div>`;
+    h += fr.map(f => `<button class="fr" data-fx="${f.x}" data-fy="${f.y}"><span>${Sim.tname(Sim.tile(S, f.x, f.y))}${f.def.n ? ` <span class="dim">守${f.def.n}</span>` : ''}</span><span class="${STATE_CLS[f.state]}">${f.def.total} / ${f.lo}–${f.hi}</span>${meter(f.def.total, f.lo, f.hi)}</button>`).join('');
+    if (!fr.length) h += `<div class="c-good">四周都是自己的地盘，今晚不会受到攻击。</div>`;
+    else if (nFail) h += `<div class="c-red">${nFail} 处守不住${nRisk ? `，${nRisk} 处看运气` : ''}。点一行去补人或堆路障。</div>`;
+    else if (nRisk) h += `<div class="c-amber">${nRisk} 处看运气。</div>`;
+    else h += `<div class="c-good">所有边界都守得住。</div>`;
+    return h;
+  }
+
+  function logHtml() {
+    const byDay = {};
+    for (const l of S.log) (byDay[l.d] = byDay[l.d] || []).push(l);
+    return `<div class="log">` + Object.keys(byDay).map(Number).sort((a, b) => b - a).slice(0, 10)
+      .map(d => `<h4>第 ${d} 天</h4>${byDay[d].map(l => `<p class="${l.tone}">${l.msg}</p>`).join('')}`).join('') + `</div>`;
+  }
+
+  function renderBar() {
+    const fr = PLAN.fronts, nFail = fr.filter(f => f.state === 'fail').length, nRisk = fr.filter(f => f.state === 'risk').length;
+    const last = S.log[S.log.length - 1];
+    $('bar').innerHTML = `
+      <button class="night" id="b-night">${ic('moon')}今晚${S.brute ? ' · <span class="c-red">巨汉</span>' : ''} · 边界 ${fr.length}${nFail ? ` · <span class="c-red">守不住 ${nFail}</span>` : ''}${nRisk ? ` · <span class="c-amber">看运气 ${nRisk}</span>` : ''}${!nFail && !nRisk ? ' · <span class="c-good">都守得住</span>' : ''}</button>
+      <button class="ticker" id="b-log" title="打开记事">${last ? last.msg : ''}</button>
+      <button class="btn primary" id="end" ${S.over || S.event ? 'disabled' : ''}>结束这一天 ▶</button>`;
+    $('b-night').onclick = () => { tab = 'night'; renderSide(); };
+    $('b-log').onclick = () => { tab = 'log'; renderSide(); };
+    $('end').onclick = endDay;
+  }
+
+  function endDay() {
+    if (S.over || S.event) return;
+    const d = S.day, n = S.log.length;
+    const ns = Sim.endDay(S);
+    report = { day: d, lines: ns.log.slice(n).filter(l => l.d === d) };
+    mode = 'report';
+    const f = $('fade'); f.classList.remove('go'); void f.offsetWidth; f.classList.add('go');
+    $('end').disabled = true;
+    setTimeout(() => commit(ns), REDUCED ? 0 : 420);
+  }
+
+  // ---------- 对话框 ----------
+  function dlg(html, bind) { $('dlg').innerHTML = html; $('ov').hidden = false; bind && bind(); const b = $('dlg').querySelector('button:not([disabled])'); if (b) b.focus({ preventScroll: true }); }
+  function closeDlg() { mode = null; render(); }
+
+  function renderOverlay() {
+    if (mode === 'report' && report) {
+      return dlg(`<h2>${ic('moon')}第 ${report.day} 夜</h2>
+        <div class="lines scroll">${report.lines.map(l => `<p class="${l.tone}">${l.msg}</p>`).join('') || '<p class="dim">一夜无事。</p>'}</div>
+        <div class="row"><button class="btn primary" id="d-ok">${S.over ? '……' : '天亮了'}</button></div>`,
+        () => { $('d-ok').onclick = () => { report = null; closeDlg(); }; });
+    }
+    if (mode === 'help') return dlg(`<h2>末日楼长</h2>
+      <p class="dim">停电第三天，你被推举为这栋老公寓的楼长。电台说救援一个月内会到，前提是你们撑得到那时候。</p>
+      <ol class="scroll" style="max-height:190px">
+        <li>在左边选一个住户，再点地图上的街区，右边会列出能做的事：搜刮、清理丧尸、收复、拆除、驻守、加固。</li>
+        <li>夜里尸群会从每块和未收复街区接壤的地盘进攻，边界越长来得越多，地图边缘不会来丧尸。底栏和“今晚”分页会提前标出守不住的地方，地图上会闪红。</li>
+        <li>边界街区守不住就会丢，和据点断开的地块也会一起丢。据点守不住会撞坏铁门，铁门撞开就输了。</li>
+        <li>清干净的街区可以花几天收复，长期提供床位、食物或防御；也可以拆掉，一次换一大笔材料。</li>
+        <li>存粮够、还有空床，会有人来投奔。每 7 天一次尸潮。撑过第 30 夜，或者收复电台叫来救援，就算赢。</li>
+        <li>每个住户都有一个特质（名字旁边的字），鼠标停在卡片上能看说明。每次撑过尸潮，第二天早上从三张楼规里选一张，效果持续到这局结束；不同的楼规会把你推向不同的打法。</li>
+        <li>地图上张着嘴、带红色声波的是尖叫者：它让周围丧尸长得更快，还会把夜袭引过来，清空那一格就能解决它。第 10 天以后，有些夜里会来巨汉，白天就会预告；那晚街区路障只算一半。</li>
+        <li>住户之间有旧识和过节。有人心里有牵挂（粉色小旗）：救家人、拿东西、收回老家、不准拆某栋楼。达成了他会更卖力，放着不管会出事。</li>
+      </ol>
+      <div class="row"><button class="btn primary" id="d-ok">开始</button></div>`, () => { $('d-ok').onclick = closeDlg; });
+    if (mode === 'new') return dlg(`<h2>开新的一局？</h2><p>现在的进度会被覆盖。想留着的话，先去存档里复制一份。</p>
+      <div class="row"><button class="btn primary" id="d-yes">开新的一局</button><button class="btn" id="d-no">取消</button></div>`,
+      () => { $('d-yes').onclick = () => { newGame(); mode = 'help'; renderOverlay(); }; $('d-no').onclick = closeDlg; });
+    if (mode === 'save') return dlg(`<h2>存档</h2>
+      <p class="dim">进度会自动存在这个浏览器里。换设备或想备份时，复制这段文本，之后粘贴回来。</p>
+      <textarea id="exp" readonly aria-label="当前存档">${Sim.serialize(S).replace(/</g, '&lt;')}</textarea>
+      <div class="row"><button class="btn" id="d-copy">复制存档</button><span class="dim" id="d-msg"></span></div>
+      <textarea id="imp" aria-label="粘贴存档" placeholder="在这里粘贴存档文本"></textarea>
+      <div class="row"><button class="btn" id="d-load">载入</button><input type="file" id="d-file" accept=".json,.txt,application/json,text/plain"><button class="btn primary" id="d-close">关闭</button></div>`, () => {
+        $('d-copy').onclick = async () => { const ta = $('exp'); try { await navigator.clipboard.writeText(ta.value); $('d-msg').textContent = '已复制'; } catch (e) { ta.focus(); ta.select(); $('d-msg').textContent = '已选中，按 Ctrl/⌘+C'; } };
+        const tryLoad = txt => { try { const ns = Sim.deserialize(txt.trim()); mode = null; selSurv = null; overSeen = false; commit(ns); } catch (e) { $('d-msg').textContent = '载入失败：' + e.message; } };
+        $('d-load').onclick = () => tryLoad($('imp').value);
+        $('d-file').onchange = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => tryLoad(String(r.result)); r.readAsText(f); };
+        $('d-close').onclick = closeDlg;
+      });
+    if (mode === 'rules') return dlg(`<h2>楼规</h2>
+      <div class="rules scroll" style="max-height:220px">${S.rules.length ? S.rules.map(k => { const r = Sim.RULES[k]; return `<div><span class="ln ln-${r.line} chip">${r.line}</span> <span class="c-amber">${r.name}</span> <span class="dim">${r.desc}</span></div>`; }).join('') : '<p class="dim">还没有楼规。每次撑过尸潮（第 7、14、21、28 夜），第二天早上会从三张里选一张。</p>'}</div>
+      <div class="row"><button class="btn primary" id="d-ok">关闭</button></div>`, () => { $('d-ok').onclick = closeDlg; });
+    if (S.event && Sim.eventView(S).draft) {
+      const ev = Sim.eventView(S);
+      return dlg(`<h2>${ic('sun')}定一条楼规</h2><p class="dim">${ev.text}</p>
+        <div class="cards">${ev.choices.map((c, i) => `<button class="btn card" data-c="${i}"><span class="ln ln-${c.line}">${c.line}</span><b>${c.label}</b><span class="d">${c.note}</span></button>`).join('')}</div>`,
+        () => $('dlg').querySelectorAll('[data-c]').forEach(b => b.onclick = () => commit(Sim.resolveEvent(S, +b.dataset.c))));
+    }
+    if (S.event) {
+      const ev = Sim.eventView(S);
+      return dlg(`<h2>${ic('sun')}第 ${S.day} 天 · 清晨</h2><p>${ev.text}</p><div class="choices">${ev.choices.map((c, i) =>
+        `<button class="btn" data-c="${i}" ${c.ok ? '' : 'disabled'}>${c.label}${c.note ? `<small>${c.note}${c.ok ? '' : '（条件不够）'}</small>` : ''}</button>`).join('')}</div>`,
+        () => $('dlg').querySelectorAll('[data-c]').forEach(b => b.onclick = () => commit(Sim.resolveEvent(S, +b.dataset.c))));
+    }
+    if (S.over && !overSeen) {
+      const o = S.over;
+      return dlg(`<h2>${o.win ? `${ic('heli')}撑到了` : `${ic('skull')}失守`}</h2><p>${o.reason}</p>
+        <div class="row"><span class="big">${o.score}</span><span class="dim">分 · 活下来 ${S.surv.length} 人 · 收复 ${Sim.owned(S).length} 块 · 失去 ${S.stats.lost} 人 · 清掉 ${S.stats.killed} 只</span></div>
+        <div class="row"><button class="btn primary" id="d-again">再来一局</button><button class="btn" id="d-look">看看地图</button></div>`,
+        () => { $('d-again').onclick = () => { newGame(); mode = 'help'; renderOverlay(); }; $('d-look').onclick = () => { overSeen = true; closeDlg(); }; });
+    }
+    $('ov').hidden = true;
+  }
+
+  function newGame() { selSurv = null; selTile = { x: 1, y: 6 }; mode = null; tab = 'tile'; overSeen = false; report = null; commit(Sim.newGame()); }
+
+  // ---------- 缩放 ----------
+  let rotateSkipped = false;
+  function fit() {
+    const f = $('fit'), cs = getComputedStyle(f);
+    const aw = f.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    const ah = f.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+    let sc = Math.min(aw / 644, ah / 364);
+    if (sc >= 2) sc = Math.floor(sc);
+    $('stage').style.transform = `translate(${2 * sc}px,${2 * sc}px) scale(${sc})`;
+    $('scaler').style.width = 644 * sc + 'px'; $('scaler').style.height = 364 * sc + 'px';
+    $('rotate').hidden = rotateSkipped || !(innerHeight > innerWidth && innerWidth < 600);
+  }
+  addEventListener('resize', fit);
+  $('rotate-skip').onclick = () => { rotateSkipped = true; fit(); };
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && ['help', 'save', 'new', 'rules'].includes(mode)) closeDlg(); });
+
+  S = load() || Sim.newGame();
+  if (S.day === 1 && !S.log.some(l => l.d > 1)) mode = 'help';
+  fit(); render();
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { fit(); render(); });
+})();
+</script>
