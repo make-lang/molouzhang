@@ -1,10 +1,7 @@
 const Sim = require('../src/sim.js');
-const src = require('fs').readFileSync(require('path').join(__dirname, 'balance.js'),'utf8');
-const policyCode = src.slice(src.indexOf('function policy'), src.indexOf('function run'));
-const { W, H, TYPES } = Sim;
-eval(policyCode);
+const { policy } = require('./balance.js');
 let s = Sim.newGame(+process.argv[2]||1001);
-const opt = { maxEdges: 12, strip: true };
+const opt = { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first' };
 while(!s.over){
   if(s.event){const v=Sim.eventView(s);const i=v.choices.findIndex(c=>c.ok);s=Sim.resolveEvent(s,i);continue;}
   s=policy(s,opt);

@@ -1,8 +1,7 @@
 // 逐件强度：开局每人发一件同样的装备（安全帽碎了每 5 天补一顶），对比不用装备
-const src = require('fs').readFileSync(require('path').join(__dirname, 'balance.js'), 'utf8');
-const Sim = require('../src/sim.js'); const { W, H, TYPES } = Sim;
-eval(src.slice(src.indexOf('// 装备：急救包'), src.indexOf('const N =')));
-const N = +process.argv[2] || 600, base = { maxEdges: 14, strip: true, wants: true, noCraft: true };
+const Sim = require('../src/sim.js');
+const { policy } = require('./balance.js');
+const N = +process.argv[2] || 600, base = { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', noCraft: true };
 function run2(seed, item) {
   let s = Sim.newGame(seed), guard = 0;
   while (!s.over && guard++ < 120) {

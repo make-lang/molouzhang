@@ -17,6 +17,19 @@ function gearUp(s, opt) {
   return s;
 }
 
+// 端巢：空闲的人合起来一天能砍得动（扣掉游荡的丧尸还能伤到巢，而且比它每晚长回来的多）就一起上
+function sendNestTeam(s, opt, free, tasks) {
+  const power = v => Math.max(1, Math.floor(v.fight * 0.8 + 0.8)) + (v.gear === 'axe' ? 1 : 0) + (v.trait === 'hothead' ? 1 : 0);
+  const nestsOk = [];
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (Sim.nestReach(s, x, y)) nestsOk.push({ x, y, t: Sim.tile(s, x, y) });
+  for (const o of nestsOk.sort((a, b) => (a.t.z + a.t.nest.hp) - (b.t.z + b.t.nest.hp))) {
+    const team = free.filter(v => v.fight >= 3 && v.trait !== 'coward').sort((a, b) => b.fight - a.fight).slice(0, opt.nestTeam ?? 3);
+    const P = team.reduce((a, v) => a + power(v), 0);
+    if (team.length < 2 || P < o.t.z + 2 || P <= o.t.nest.lv + 1) continue;
+    for (const v of team) { tasks[v.id] = { k: 'clear', x: o.x, y: o.y }; free.splice(free.indexOf(v), 1); }
+  }
+}
+
 function policy(s, opt) {
   s = gearUp(s, opt);
   const margin = opt.margin ?? 0;
@@ -24,6 +37,8 @@ function policy(s, opt) {
   const pool = s.surv.filter(Sim.ready).sort((a, b) => b.fight - a.fight);
   const tasks = {};
   const deficit = {};
+  // 先端巢再补防线：尸潮夜、铁门快撑不住时不去
+  if (opt.nest === 'first' && !plan.surge && s.wall > s.wallMax / 2) sendNestTeam(s, opt, pool, tasks);
   // 1. 守边界：按缺口从大到小补人
   const fronts = plan.fronts.map(f => ({ ...f, need: Math.ceil((f.lo + f.hi) / 2) + margin - f.def.bar - f.def.place }))
     .sort((a, b) => (b.base - a.base) || (b.need - a.need));
@@ -43,8 +58,8 @@ function policy(s, opt) {
     .sort((a, b) => (b.t.food * 2 + b.t.mat) / (1 + b.t.z) - (a.t.food * 2 + a.t.mat) / (1 + a.t.z));
   const expand = plan.edges < (opt.maxEdges ?? 99) && !opt.turtle;
   const val = o => { const T = Sim.eff(o.t); return ((T.food || 0) * 3 + (T.beds || 0) * 0.6 + (T.mat || 0) * 2 + (T.def || 0) + (T.heal ? 2 : 0) + (T.radio ? 6 : 0) + 0.3) / Math.max(1, TYPES[o.t.t].cost - o.t.prog); };
-  const claimable = front.filter(o => !o.t.owned && o.t.z === 0).sort((a, b) => val(b) - val(a));
-  const clearable = front.filter(o => !o.t.owned && o.t.z > 0).sort((a, b) => (opt.hunt ? (b.t.scream ? 9 : 0) - (a.t.scream ? 9 : 0) : 0) + val(b) / (1 + b.t.z) - val(a) / (1 + a.t.z));
+  const claimable = front.filter(o => !o.t.owned && o.t.z === 0 && !o.t.nest).sort((a, b) => val(b) - val(a));
+  const clearable = front.filter(o => !o.t.owned && o.t.z > 0 && !o.t.nest).sort((a, b) => (opt.hunt ? (b.t.scream ? 9 : 0) - (a.t.scream ? 9 : 0) : 0) + val(b) / (1 + b.t.z) - val(a) / (1 + a.t.z));
   const strippable = front.filter(o => !o.t.owned && o.t.z === 0 && o.t.strip > 0 && ['house', 'ruin', 'mart', 'market'].includes(o.t.t));
   const hungry = s.food < s.surv.length * 3;
   let fortified = 0;
@@ -65,6 +80,7 @@ function policy(s, opt) {
     free.sort((a, b) => b.fight - a.fight);
     const v = free.shift(); if (v) tasks[v.id] = { k: 'rescue', x: s.sos.x, y: s.sos.y };
   }
+  if (opt.nest === 'after') sendNestTeam(s, opt, free, tasks);
   // 打造：材料宽裕、还有人没装备时，让一个留守据点的人顺手做（夜里照样守）
   if (!opt.noGear && !opt.noCraft && s.mat >= 12 && s.surv.filter(u => !u.gear).length > s.stash.length + 1) {
     const home = s.surv.filter(v => tasks[v.id] && tasks[v.id].k === 'defend' && tasks[v.id].x == null).sort((a, b) => b.build - a.build)[0];
@@ -115,6 +131,7 @@ function run(seed, opt) {
       s = Sim.resolveEvent(s, i >= 0 ? i : view.choices.findIndex(c => c.ok));
       continue;
     }
+    if (opt.probe) opt.probe(s);
     s = Sim.endDay(policy(s, opt));
     if (s.day === 21) food20 = s.food;
     maxOwned = Math.max(maxOwned, Sim.owned(s).length);
@@ -122,20 +139,24 @@ function run(seed, opt) {
   return { s, food20, maxOwned };
 }
 
-const N = +process.argv[2] || 400;
-const variants = [
-  ['不管尖叫者', { maxEdges: 14, strip: true, wants: true }],
-  ['优先打尖叫者', { maxEdges: 14, strip: true, wants: true, hunt: true, detail: true }],
-];
-for (const [name, opt] of variants) {
-  const res = []; for (let i = 0; i < N; i++) res.push(run(1000 + i, opt));
-  const wins = res.filter(r => r.s.over.win).length;
-  const avg = f => (res.reduce((a, r) => a + f(r), 0) / res.length).toFixed(1);
-  const f20 = res.filter(r => r.food20 != null).map(r => r.food20).sort((a, b) => a - b);
-  const med = f20.length ? f20[Math.floor(f20.length / 2)] : '-';
-  const by = (key, table) => Object.keys(table).map(k => { const g = res.filter(r => r.s[key] === k); return g.length ? `${table[k].name} ${(g.filter(r => r.s.over.win).length / g.length * 100).toFixed(0)}%(${g.length})` : ''; }).filter(Boolean).join('  ');
-  const lossDays = res.filter(r => !r.s.over.win).map(r => r.s.day - 1).sort((a, b) => a - b);
-  const q = p => lossDays.length ? lossDays[Math.floor(p * (lossDays.length - 1))] : '-';
-  console.log(`${name.padEnd(12)} 胜率 ${(wins / N * 100).toFixed(0)}%  失败日 p25/50/75 ${q(.25)}/${q(.5)}/${q(.75)}  第20天食物中位数 ${med}  峰值地块 ${avg(r => r.maxOwned)}  终局人数 ${avg(r => r.s.surv.length)}  丢地 ${avg(r => r.s.stats.tilesLost)}  投奔 ${avg(r => r.s.stats.recruited)}  失去 ${avg(r => r.s.stats.lost)}`);
-  if (opt.detail) console.log(`  城况：${by('city', Sim.CITIES)}\n  出身：${by('origin', Sim.ORIGINS)}`);
+module.exports = { policy, run };
+if (require.main === module) {
+  const N = +process.argv[2] || 400;
+  const variants = [
+    ['不打巢', { maxEdges: 14, strip: true, wants: true, hunt: true }],
+    ['有空才打巢', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'after' }],
+    ['先打巢', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', detail: true }],
+  ];
+  for (const [name, opt] of variants) {
+    const res = []; for (let i = 0; i < N; i++) res.push(run(1000 + i, opt));
+    const wins = res.filter(r => r.s.over.win).length;
+    const avg = f => (res.reduce((a, r) => a + f(r), 0) / res.length).toFixed(1);
+    const f20 = res.filter(r => r.food20 != null).map(r => r.food20).sort((a, b) => a - b);
+    const med = f20.length ? f20[Math.floor(f20.length / 2)] : '-';
+    const by = (key, table) => Object.keys(table).map(k => { const g = res.filter(r => r.s[key] === k); return g.length ? `${table[k].name} ${(g.filter(r => r.s.over.win).length / g.length * 100).toFixed(0)}%(${g.length})` : ''; }).filter(Boolean).join('  ');
+    const lossDays = res.filter(r => !r.s.over.win).map(r => r.s.day - 1).sort((a, b) => a - b);
+    const q = p => lossDays.length ? lossDays[Math.floor(p * (lossDays.length - 1))] : '-';
+    console.log(`${name.padEnd(12)} 胜率 ${(wins / N * 100).toFixed(0)}%  失败日 p25/50/75 ${q(.25)}/${q(.5)}/${q(.75)}  第20天食物中位数 ${med}  峰值地块 ${avg(r => r.maxOwned)}  终局人数 ${avg(r => r.s.surv.length)}  丢地 ${avg(r => r.s.stats.tilesLost)}  投奔 ${avg(r => r.s.stats.recruited)}  失去 ${avg(r => r.s.stats.lost)}  端巢 ${avg(r => r.s.stats.nests || 0)}`);
+    if (opt.detail) console.log(`  城况：${by('city', Sim.CITIES)}\n  出身：${by('origin', Sim.ORIGINS)}`);
+  }
 }
