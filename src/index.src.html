@@ -2,7 +2,7 @@
 <meta name="claude:viewport-fit-sides" content="cover">
 <style>
 /*FONTFACE*/
-/* 版面：640×360 的固定横版舞台，按窗口等比缩放并居中。顶部 HUD，左住户栏，中间地图，右情境面板，底部回合栏；所有对话框都在舞台里。 */
+/* 版面：960×540 的固定横版舞台（1080p 屏幕正好 2 倍整数缩放），按窗口等比缩放并居中。顶部 HUD，左住户栏，中间地图，右情境面板，底部回合栏；所有对话框都在舞台里。 */
 /* 刻意只做一种深色：停电后的老街区，琥珀色的灯是唯一的暖色。 */
 :root {
   color-scheme: dark;
@@ -26,7 +26,7 @@
 html, body { height: 100%; }
 body {
   background: var(--void); color: var(--ink); margin: 0; overflow: hidden;
-  font: 12px/16px var(--font); -webkit-font-smoothing: none;
+  font: 12px/18px var(--font); -webkit-font-smoothing: none;
 }
 #fit {
   position: fixed; inset: 0; display: grid; place-items: center; box-sizing: border-box;
@@ -35,7 +35,7 @@ body {
 }
 #scaler { position: relative; }
 #stage {
-  position: absolute; left: 0; top: 0; width: 640px; height: 360px; transform-origin: 0 0;
+  position: absolute; left: 0; top: 0; width: 960px; height: 540px; transform-origin: 0 0;
   background: var(--stage); overflow: hidden; box-shadow: 0 0 0 2px var(--edge);
 }
 #stage * { box-sizing: border-box; }
@@ -63,107 +63,112 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
 .scroll::-webkit-scrollbar { width: 4px; } .scroll::-webkit-scrollbar-thumb { background: var(--edge); }
 
 /* HUD */
-#hud { position: absolute; left: 0; top: 0; width: 640px; height: 24px; display: flex; align-items: center; gap: 8px; padding: 0 4px 0 8px;
+#hud { position: absolute; left: 0; top: 0; width: 960px; height: 32px; display: flex; align-items: center; gap: 14px; padding: 0 6px 0 10px;
   background: var(--sunk); border-bottom: 2px solid var(--edge); }
 #hud .logo { color: var(--amber); }
-#hud .res { display: flex; align-items: center; gap: 3px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+#hud img.ic { width: 16px; height: 16px; }
+#hud .res { display: flex; align-items: center; gap: 4px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 #hud .res small { font-size: 12px; color: var(--dim); }
 #hud .spacer { flex: 1; }
-.hp { width: 32px; height: 6px; background: var(--panel); border: 1px solid var(--edge-hi); position: relative; }
+.hp { width: 48px; height: 8px; background: var(--panel); border: 1px solid var(--edge-hi); position: relative; }
 .hp i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--good); }
 .hp.low i { background: var(--red); }
 #hud > * { white-space: nowrap; flex-shrink: 0; }
 #hud .spacer { flex-shrink: 1; min-width: 0; }
-#hud .menu { display: flex; gap: 3px; }
-#hud .menu .btn { padding: 0 5px; line-height: 14px; border-width: 1px; }
+#hud .menu { display: flex; gap: 4px; }
+#hud .menu .btn { padding: 1px 8px; line-height: 16px; border-width: 1px; }
 
 /* 住户栏 */
-#roster { position: absolute; left: 6px; top: 30px; width: 148px; height: 288px; padding: 4px; display: flex; flex-direction: column; gap: 3px; }
+#roster { position: absolute; left: 8px; top: 40px; width: 224px; height: 432px; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
 .ptitle { display: flex; justify-content: space-between; color: var(--dim); padding: 0 2px; }
-#people { flex: 1; display: flex; flex-direction: column; gap: 3px; padding-right: 2px; }
-.pc { display: grid; grid-template-columns: 24px 1fr; gap: 0 5px; text-align: left; padding: 3px; border: 1px solid transparent; background: var(--panel2); position: relative; }
+#people { flex: 1; display: flex; flex-direction: column; gap: 4px; padding-right: 3px; }
+.pc { display: grid; grid-template-columns: 36px 1fr; gap: 0 7px; text-align: left; padding: 5px 6px; border: 1px solid transparent; background: var(--panel2); position: relative; }
 .pc:hover { border-color: var(--edge-hi); }
 .pc.sel { border-color: var(--amber); background: #2d2a26; }
 .pc.out { opacity: .55; }
-.pc canvas { width: 24px; height: 24px; image-rendering: pixelated; grid-row: 1 / span 2; }
-.pc .nm { display: flex; gap: 4px; align-items: baseline; white-space: nowrap; overflow: hidden; }
+.pc canvas { width: 36px; height: 36px; image-rendering: pixelated; grid-row: 1 / span 2; }
+.pc .nm { display: flex; gap: 6px; padding-right: 20px; align-items: baseline; white-space: nowrap; overflow: hidden; }
 .pc .nm span { color: var(--dim); }
 .pc .nm .trait { color: #d6b98a; }
-.pc .sk { display: flex; gap: 3px; align-items: center; color: var(--dim); white-space: nowrap; }
-.pc .sk em { font-style: normal; color: var(--ink); margin-right: 3px; }
-.pc .tk { grid-column: 1 / -1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--dim); }
+.pc .sk { display: flex; gap: 4px; align-items: center; color: var(--dim); white-space: nowrap; }
+.pc .sk em { font-style: normal; color: var(--ink); margin-right: 6px; }
+.pc .job { color: var(--dim); margin-left: 6px; }
+.pc .tk { grid-column: 1 / -1; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--dim); }
 .pc .tk.hurt { color: var(--red); }
-.pc .kin { position: absolute; right: 4px; top: 4px; }
-.pc .gear { position: absolute; right: 4px; top: 17px; }
-.gi { display: flex; flex-direction: column; gap: 2px; padding: 3px 4px; background: var(--panel2); }
+.pc .kin { position: absolute; right: 6px; top: 6px; }
+.pc .gear { position: absolute; right: 6px; top: 26px; }
+.pc .kin img.ic, .pc .gear img.ic { width: 16px; height: 16px; }
+.gi { display: flex; flex-direction: column; gap: 2px; padding: 5px 7px; background: var(--panel2); }
 .gi .row2 { display: flex; justify-content: space-between; align-items: center; gap: 4px; }
 .gi .row2 button { white-space: nowrap; }
 .gh { color: var(--amber); margin-top: 2px; }
 
 /* 地图 */
-#mapwrap { position: absolute; left: 160px; top: 30px; width: 256px; height: 288px; }
-#map { position: absolute; left: 0; top: 0; width: 256px; height: 256px; image-rendering: pixelated; cursor: pointer; background: #0b0d12; box-shadow: 0 0 0 2px var(--sunk), 0 0 0 3px var(--edge); }
-#mapcap { position: absolute; left: 0; top: 262px; width: 256px; height: 26px; display: flex; flex-direction: column; justify-content: center; color: var(--dim); white-space: nowrap; overflow: hidden; }
+#mapwrap { position: absolute; left: 240px; top: 40px; width: 384px; height: 432px; }
+#map { position: absolute; left: 0; top: 0; width: 384px; height: 384px; image-rendering: pixelated; cursor: pointer; background: #0b0d12; box-shadow: 0 0 0 2px var(--sunk), 0 0 0 3px var(--edge); }
+#mapcap { position: absolute; left: 0; top: 392px; width: 384px; height: 40px; display: flex; flex-direction: column; justify-content: center; color: var(--dim); white-space: nowrap; overflow: hidden; }
 #mapcap > span { overflow: hidden; text-overflow: ellipsis; }
 #tip { position: absolute; pointer-events: none; padding: 0 4px; background: var(--sunk); border: 1px solid var(--edge-hi); white-space: nowrap; z-index: 3; }
 
 /* 右侧面板 */
-#side { position: absolute; left: 422px; top: 30px; width: 212px; height: 288px; display: flex; flex-direction: column; }
+#side { position: absolute; left: 632px; top: 40px; width: 320px; height: 432px; display: flex; flex-direction: column; }
 #tabs { display: flex; border-bottom: 2px solid var(--edge); }
-#tabs button { flex: 1; padding: 2px 0; text-align: center; color: var(--dim); background: var(--sunk); border-right: 1px solid var(--edge); }
+#tabs button { flex: 1; padding: 4px 0; text-align: center; color: var(--dim); background: var(--sunk); border-right: 1px solid var(--edge); }
 #tabs button:last-child { border-right: 0; }
 #tabs button[aria-selected="true"] { color: var(--ink); background: var(--panel); box-shadow: inset 0 2px 0 var(--amber); }
-#sidebody { flex: 1; padding: 5px 5px 6px 6px; display: flex; flex-direction: column; gap: 5px; }
+#sidebody { flex: 1; padding: 8px 8px 8px 10px; display: flex; flex-direction: column; gap: 7px; }
 .th { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
 .th b { font-weight: 400; color: var(--amber); }
 .chip { padding: 0 3px; border: 1px solid currentColor; line-height: 12px; }
 .desc { color: var(--dim); }
 .kv { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
-.box { background: var(--sunk); padding: 3px 5px; border-left: 2px solid var(--edge); }
+.box { background: var(--sunk); padding: 5px 8px; border-left: 2px solid var(--edge); }
 .box.fail { border-color: var(--red); } .box.risk { border-color: var(--amber); } .box.safe { border-color: var(--good); } .box.kin { border-color: var(--kin); }
-.acts { display: flex; flex-direction: column; gap: 3px; }
-.act { display: grid; grid-template-columns: 1fr auto; text-align: left; padding: 1px 6px 2px; }
+.acts { display: flex; flex-direction: column; gap: 4px; }
+.act { display: grid; grid-template-columns: 1fr auto; text-align: left; padding: 3px 8px 4px; }
 .act small { grid-column: 1 / -1; font-size: 12px; color: var(--dim); }
 .here button { color: var(--amber); text-decoration: underline; text-underline-offset: 2px; }
-.bar2 { display: block; height: 6px; background: var(--panel); position: relative; border: 1px solid var(--edge); }
+.bar2 { display: block; height: 8px; background: var(--panel); position: relative; border: 1px solid var(--edge); }
 .bar2 .d { position: absolute; left: 0; top: 0; bottom: 0; background: #f0b04a55; border-right: 1px solid var(--amber); }
 .bar2 .t { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(90deg, #e2654b99 0 1px, transparent 1px 3px); border-left: 1px solid var(--red); border-right: 1px solid var(--red); }
-.fr { display: grid; grid-template-columns: 1fr auto; gap: 2px 6px; text-align: left; padding: 3px 5px; background: var(--panel2); border: 1px solid transparent; }
+.fr { display: grid; grid-template-columns: 1fr auto; gap: 3px 8px; text-align: left; padding: 5px 8px; background: var(--panel2); border: 1px solid transparent; }
 .fr:hover { border-color: var(--edge-hi); }
 .fr .bar2 { grid-column: 1 / -1; }
-.log p { margin: 0 0 2px; }
-.log h4 { margin: 4px 0 2px; font-weight: 400; color: var(--amber); }
+.log p { margin: 0 0 4px; }
+.log h4 { margin: 6px 0 3px; font-weight: 400; color: var(--amber); }
 .log .good { color: var(--good); } .log .bad { color: var(--red); }
 
 /* 底栏 */
-#bar { position: absolute; left: 6px; top: 324px; width: 628px; height: 30px; display: flex; align-items: center; gap: 10px; padding: 0 3px 0 8px; }
+#bar { position: absolute; left: 8px; top: 482px; width: 944px; height: 48px; display: flex; align-items: center; gap: 14px; padding: 0 8px 0 12px; }
+#bar img.ic { width: 16px; height: 16px; }
 #bar .night { white-space: nowrap; display: flex; gap: 4px; align-items: center; }
 #bar .ticker { flex: 1; min-width: 0; text-align: left; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #bar .ticker:hover { color: var(--ink); }
-#end { padding: 1px 12px; }
+#end { padding: 6px 20px; }
 
 /* 对话框 */
 #ov { position: absolute; inset: 0; background: #05060ad8; display: grid; place-items: center; z-index: 10; }
-#dlg { width: 380px; max-height: 320px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; border-color: var(--amber-dk); }
+#dlg { width: 580px; max-height: 500px; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; border-color: var(--amber-dk); }
 #dlg h2 { margin: 0; font-weight: 400; font-size: 24px; line-height: 26px; color: var(--amber); display: flex; gap: 8px; align-items: center; }
 #dlg h2 img.ic { width: 16px; height: 16px; }
 #dlg p { margin: 0; }
-#dlg .lines { display: flex; flex-direction: column; gap: 2px; max-height: 180px; padding-right: 4px; }
+#dlg .lines { display: flex; flex-direction: column; gap: 4px; max-height: 320px; padding-right: 4px; }
 #dlg .lines .good { color: var(--good); } #dlg .lines .bad { color: var(--red); }
-#dlg .choices { display: flex; flex-direction: column; gap: 4px; }
+#dlg .choices { display: flex; flex-direction: column; gap: 6px; }
+#dlg .choices .btn { padding: 5px 10px; }
 #dlg .choices .btn { text-align: left; }
 #dlg .choices small { color: var(--dim); margin-left: 6px; font-size: 12px; }
 #dlg .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-#dlg textarea { width: 100%; height: 52px; background: var(--sunk); color: var(--ink); border: 1px solid var(--edge); font: 10px/12px ui-monospace, Menlo, monospace; padding: 4px; resize: none; }
+#dlg textarea { width: 100%; height: 80px; background: var(--sunk); color: var(--ink); border: 1px solid var(--edge); font: 10px/12px ui-monospace, Menlo, monospace; padding: 4px; resize: none; }
 #dlg input[type=file] { font: inherit; color: var(--dim); max-width: 190px; }
-.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-.card { display: flex; flex-direction: column; gap: 4px; padding: 6px; min-height: 110px; text-align: left; }
+.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.card { display: flex; flex-direction: column; gap: 6px; padding: 10px; min-height: 150px; text-align: left; }
 .card .ln { align-self: flex-start; padding: 0 3px; border: 1px solid currentColor; line-height: 12px; }
 .card b { font-weight: 400; color: var(--amber); }
 .card span.d { color: var(--ink); }
 .ln-堡垒 { color: #74a6dc; } .ln-拆迁 { color: #c88a3e; } .ln-大家庭 { color: var(--kin); } .ln-远征 { color: var(--good); } .ln-通用 { color: var(--dim); } .ln-城况 { color: #e2654b; } .ln-出身 { color: #d6b98a; }
 .rules { display: flex; flex-direction: column; gap: 4px; }
-#dlg ol { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+#dlg ol { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 6px; }
 .big { font-size: 24px; line-height: 26px; color: var(--amber); }
 #fade { position: absolute; inset: 0; background: #02030a; opacity: 0; pointer-events: none; z-index: 9; }
 #fade.go { animation: night 1s ease-in-out; }
@@ -381,8 +386,8 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
     const t = Sim.tile(S, p.x, p.y);
     tip.textContent = !t.seen ? '未探明' : Sim.tname(t) + (t.owned ? ' · 我方' : t.z ? ` · 丧尸 ${t.z}` : ' · 安全') + (t.scream ? ' · 尖叫者' : '') + (t.camp ? ' · 另一伙人' : '') + (t.drop ? ' · 空投' : '') + (t.gear && t.gear.length ? ' · 有装备' : '');
     tip.hidden = false;
-    tip.style.left = Math.max(0, Math.min(256 - tip.offsetWidth, p.x * 32 + 16 - tip.offsetWidth / 2)) + 'px';
-    tip.style.top = (p.y === 0 ? 34 : p.y * 32 - 18) + 'px';
+    tip.style.left = Math.max(0, Math.min(384 - tip.offsetWidth, p.x * 48 + 24 - tip.offsetWidth / 2)) + 'px';
+    tip.style.top = (p.y === 0 ? 50 : p.y * 48 - 20) + 'px';
   });
   cv.addEventListener('mouseleave', () => { $('tip').hidden = true; hover = null; drawMap(); });
   cv.addEventListener('keydown', e => {
@@ -452,7 +457,7 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
       return `<button class="pc${v.id === selSurv ? ' sel' : ''}${out ? ' out' : ''}" data-id="${v.id}" aria-pressed="${v.id === selSurv}" title="${v.job} · ${T2 ? T2.name + '：' + T2.desc : ''}${v.gear ? ' · 带着' + Sim.GEAR[v.gear].name : ''}">
         <canvas width="12" height="12" data-pid="${v.id}"></canvas>
         <span class="nm"><b>${v.name}</b>${T2 ? `<span class="trait">${T2.name}</span>` : `<span>${v.job}</span>`}</span>
-        <span class="sk">${ic('fist', '战斗')}<em>${v.fight}</em>${ic('bag', '搜刮')}<em>${v.scav}</em>${ic('ham', '建造')}<em>${v.build}</em></span>
+        <span class="sk">${ic('fist', '战斗')}<em>${v.fight}</em>${ic('bag', '搜刮')}<em>${v.scav}</em>${ic('ham', '建造')}<em>${v.build}</em><span class="job">${v.job}</span></span>
         <span class="tk${tt.hurt ? ' hurt' : ''}">${tt.t}</span>
         ${v.want ? `<span class="kin" title="${v.want.txt}">${ic('flag', '牵挂')}</span>` : ''}
         ${v.gear ? `<span class="gear" title="${Sim.GEAR[v.gear].name}：${Sim.GEAR[v.gear].desc}">${ic(v.gear, Sim.GEAR[v.gear].name)}</span>` : ''}
@@ -669,7 +674,7 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
     }
     if (mode === 'help') return dlg(`<h2>末日楼长</h2>
       <p class="dim">停电第三天，你被推举为这栋老公寓的楼长。电台说救援一个月内会到，前提是你们撑得到那时候。</p>
-      <ol class="scroll" style="max-height:190px">
+      <ol class="scroll" style="max-height:330px">
         <li>在左边选一个住户，再点地图上的街区，右边会列出能做的事：搜刮、清理丧尸、收复、拆除、驻守、加固。</li>
         <li>夜里尸群会从每块和未收复街区接壤的地盘进攻，边界越长来得越多，地图边缘不会来丧尸。底栏和“今晚”分页会提前标出守不住的地方，地图上会闪红。</li>
         <li>边界街区守不住就会丢，和据点断开的地块也会一起丢。据点守不住会撞坏铁门，铁门撞开就输了。</li>
@@ -699,7 +704,7 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
         $('d-close').onclick = closeDlg;
       });
     if (mode === 'rules') return dlg(`<h2>楼规</h2>
-      <div class="rules scroll" style="max-height:220px">${S.city ? `<div><span class="ln ln-城况 chip">城况</span> <span class="c-amber">${Sim.CITIES[S.city].name}</span> <span class="dim">${Sim.CITIES[S.city].desc}</span></div>` : ''}${S.origin ? `<div><span class="ln ln-出身 chip">出身</span> <span class="c-amber">${Sim.ORIGINS[S.origin].name}</span> <span class="dim">${Sim.ORIGINS[S.origin].desc}</span></div>` : ''}${S.rules.length ? S.rules.map(k => { const r = Sim.RULES[k]; return `<div><span class="ln ln-${r.line} chip">${r.line}</span> <span class="c-amber">${r.name}</span> <span class="dim">${r.desc}</span></div>`; }).join('') : `<p class="dim">还没有楼规。每次撑过尸潮（每 ${Sim.surgeEvery(S)} 天一次），第二天早上会从三张里选一张。</p>`}</div>
+      <div class="rules scroll" style="max-height:360px">${S.city ? `<div><span class="ln ln-城况 chip">城况</span> <span class="c-amber">${Sim.CITIES[S.city].name}</span> <span class="dim">${Sim.CITIES[S.city].desc}</span></div>` : ''}${S.origin ? `<div><span class="ln ln-出身 chip">出身</span> <span class="c-amber">${Sim.ORIGINS[S.origin].name}</span> <span class="dim">${Sim.ORIGINS[S.origin].desc}</span></div>` : ''}${S.rules.length ? S.rules.map(k => { const r = Sim.RULES[k]; return `<div><span class="ln ln-${r.line} chip">${r.line}</span> <span class="c-amber">${r.name}</span> <span class="dim">${r.desc}</span></div>`; }).join('') : `<p class="dim">还没有楼规。每次撑过尸潮（每 ${Sim.surgeEvery(S)} 天一次），第二天早上会从三张里选一张。</p>`}</div>
       <div class="row"><button class="btn primary" id="d-ok">关闭</button></div>`, () => { $('d-ok').onclick = closeDlg; });
     if (S.event && Sim.eventView(S).draft) {
       const ev = Sim.eventView(S);
@@ -731,10 +736,10 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
     const f = $('fit'), cs = getComputedStyle(f);
     const aw = f.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
     const ah = f.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
-    let sc = Math.min(aw / 644, ah / 364);
+    let sc = Math.min(aw / 964, ah / 544);
     if (sc >= 2) sc = Math.floor(sc);
     $('stage').style.transform = `translate(${2 * sc}px,${2 * sc}px) scale(${sc})`;
-    $('scaler').style.width = 644 * sc + 'px'; $('scaler').style.height = 364 * sc + 'px';
+    $('scaler').style.width = 964 * sc + 'px'; $('scaler').style.height = 544 * sc + 'px';
     $('rotate').hidden = rotateSkipped || !(innerHeight > innerWidth && innerWidth < 600);
   }
   addEventListener('resize', fit);
