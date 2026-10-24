@@ -1,12 +1,13 @@
 // 末日楼长 · 模拟层 v0.2
 // 纯逻辑：所有函数接收 state、返回新 state，不碰 DOM。随机数种子存在 state 里，存档可完整复现。
 // v0.2：夜袭按边界逐块结算（扩张会拉长防线）；建筑可以拆掉换材料；食物充足时会有人来投奔。
+// v0.7：开局先选城市状况和楼长出身；早晨事件扩充，加入国小那伙人、发烧、求救信号等事件链。
 // v0.6：丧尸分出尖叫者（地图上的优先目标）和巨汉（夜袭时让路障只算一半）。
 // v0.5：住户各有一个特质；每次撑过尸潮，从三张楼规卡里选一张，效果持续整局。
 // v0.3：住户有绑在地图上的牵挂（救人、取物、收回老家、别拆），有期限，达成会更卖力，放着不管会出事。
 const Sim = (() => {
   'use strict';
-  const VERSION = 5;
+  const VERSION = 6;
   const W = 8, H = 8;
   const GOAL = 30;          // 撑过第 30 夜，救援车队到达
   const FORT_MAX = 10;      // 据点工事上限
@@ -93,6 +94,25 @@ const Sim = (() => {
     ration:    { line: '通用', name: '配给制',     desc: '每天吃的食物少三成；但每天有一成机会有人赌气一天。' },
   };
 
+  // 城市状况：开局第一张三选一，决定这局的丧尸、尸潮节奏和胜利路线
+  const CITIES = {
+    rain:     { name: '梅雨季',   desc: '雨声盖过了尖叫，这局没有尖叫者。但存粮超过每人 6 份的部分，每天会发霉一成。' },
+    noradio:  { name: '电塔倒了', desc: '电台收复了也叫不来救援，只能撑满 30 天。作为补偿，开局马上多定一条楼规。' },
+    moon:     { name: '尸潮频繁', desc: '尸潮每 5 天来一次，规模小一些；每次撑过都能定一条楼规。' },
+    builders: { name: '工地旁边', desc: '巨汉从第 7 天起就会出现，而且更常来。但废墟和五金行里的材料多一倍。' },
+    screams:  { name: '尖叫季',   desc: '开局 4 只尖叫者，最多会有 5 只。但它们把据点附近的丧尸引走了一半。' },
+    airdrop:  { name: '军方空投', desc: '每 4 天往街区里投一箱补给，先到先得。但直升机的动静会把丧尸引过来，每晚尸群多一些。' },
+  };
+  // 楼长出身：开局第二张三选一，每个都有好处也有代价
+  const ORIGINS = {
+    lizhang:  { name: '退休里长',   desc: '两户老邻居带着米缸搬进来（+2 人，彼此是旧识，+6 食物）。但床位一开始就挤满了，没人能来投奔。' },
+    boss:     { name: '五金行老板', desc: '店里的存货全搬来了：材料 +10，工事 +3。但开局少一个人。' },
+    veteran:  { name: '退伍老兵',   desc: '你自己就能打：多一个战斗 5、夜猫子的老兵。但他跟楼里一个人有过节。' },
+    stall:    { name: '夜市头家',   desc: '食物 +10，开局就有楼规「大锅饭」。但材料只剩 2。' },
+    courier:  { name: '外送站长',   desc: '整片街区你都送过：地图全部探明，开局就有楼规「外送地图」。但铁门耐久上限 -4。' },
+    nurse:    { name: '护理长',     desc: '开局就有楼规「急救站」，还多一个懂护理的护理师。但开局食物 -2。' },
+  };
+
   // ---------- 工具 ----------
   const clone = o => JSON.parse(JSON.stringify(o));
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -111,7 +131,7 @@ const Sim = (() => {
   const frontier = (s, x, y) => nbrs(x, y).some(([a, b]) => tile(s, a, b).owned);
   const reachable = (s, x, y) => tile(s, x, y).owned || frontier(s, x, y);
   const owned = s => s.tiles.filter(t => t.owned);
-  const ready = v => v.inj === 0 && v.sulk === 0;
+  const ready = v => v.inj === 0 && v.sulk === 0 && !v.busy;   // busy：今天被事件占用，第二天就回来
   const byId = (s, id) => s.surv.find(v => v.id === id);
   const isBase = t => t.t === 'base';
   const eff = t => t.gutted ? TYPES.ruin : TYPES[t.t];            // 拆过的建筑不再提供加成
@@ -134,16 +154,19 @@ const Sim = (() => {
   };
   // 每天吃掉的食物
   const foodUse = s => {
-    const n = s.surv.length + s.surv.filter(v => tr(v, 'bigeater')).length;
+    const n = s.surv.length + s.surv.filter(v => tr(v, 'bigeater')).length + (s.dog ? 1 : 0);
     return has(s, 'ration') ? Math.ceil(n * 0.7) : n;
   };
   const hasHospital = s => owned(s).some(t => eff(t).heal);
 
-  // 尸群总量：随天数增长，每 7 天一次尸潮
-  function horde(day) {
+  // 尸群总量：随天数增长，每 7 天一次尸潮（尸潮频繁的城市每 5 天一次，但规模小一些）
+  const surgeEvery = s => s && s.city === 'moon' ? 5 : 7;
+  const surgeIn = s => { const p = surgeEvery(s); return p - (s.day % p || p); };   // 0 = 今晚
+  function horde(day, s) {
     let lo = 1 + 0.55 * day, hi = lo + 3;
-    const surge = day % 7 === 0;
-    if (surge) { lo = lo * 1.4 + 2; hi = hi * 1.4 + 2; }
+    const surge = day % surgeEvery(s) === 0;
+    const [k, add] = s && s.city === 'moon' ? [1.3, 1.5] : [1.4, 2];
+    if (surge) { lo = lo * k + add; hi = hi * k + add; }
     return { lo, hi, surge };
   }
 
@@ -176,7 +199,7 @@ const Sim = (() => {
     if (!bonus) bonus = relBonus(s, s.surv.filter(ready)).b;
     const barRaw = isBase(t) ? s.fort : t.bar;
     const bar = s.brute && !isBase(t) ? Math.floor(barRaw / 2) : barRaw;   // 巨汉只撞得动街区的临时路障，据点的铁窗工事不受影响
-    const place = (eff(t).def || 0) + (isBase(t) ? 0 : 1) + (has(s, 'shifts') ? 1 : 0);   // 收复的地块都封过窗，自带 1
+    const place = (eff(t).def || 0) + (isBase(t) ? (s.dog ? 2 : 0) : 1) + (has(s, 'shifts') ? 1 : 0);   // 收复的地块都封过窗，自带 1；狗会在据点叫醒大家
     const team = s.surv.filter(v => ready(v) && guardAt(v, x, y, s));
     let people = team.reduce((a, v) => a + Math.max(0, v.fight + (bonus[v.id] || 0) + (tr(v, 'nightowl') ? 2 : 0)), 0);
     if (team.length > 1 && team.some(v => tr(v, 'loud'))) people += team.length - 1;
@@ -186,7 +209,7 @@ const Sim = (() => {
   // 今晚的边界：每块与未收复地块相邻的已收复地块都会遭到攻击。
   // 边界越长（已收复与未收复之间的接触边越多），尸群总量越大；丧尸越密的方向，分到的攻击越多。地图边缘不会来丧尸。
   function nightPlan(s) {
-    const h = horde(s.day);
+    const h = horde(s.day, s);
     const fronts = [];
     let edges = 0;
     for (const [x, y] of coords(s)) {
@@ -195,6 +218,7 @@ const Sim = (() => {
       let w = 0, e = 0;
       for (const [a, b] of nbrs(x, y)) {
         const n = tile(s, a, b);
+        if (n.camp && s.camp && s.camp.state === 'active') continue;   // 交好的营地替你挡住那一侧
         if (!n.owned) { e++; w += 1 + 0.5 * Math.min(n.z, 4) + (n.scream ? 3 : 0); }
       }
       if (!e) continue;
@@ -203,7 +227,7 @@ const Sim = (() => {
       fronts.push({ x, y, w, e });
     }
     const screamers = coords(s).filter(([x, y]) => tile(s, x, y).scream && frontier(s, x, y)).length;
-    const mult = 1 + 0.12 * Math.max(0, edges - 4) + 0.1 * screamers;
+    const mult = 1 + 0.12 * Math.max(0, edges - 4) + 0.1 * screamers + (s.city === 'airdrop' ? 0.06 : 0);
     const W_ = fronts.reduce((a, f) => a + f.w, 0) || 1;
     const bonus = relBonus(s, s.surv.filter(ready)).b;
     for (const f of fronts) {
@@ -288,8 +312,9 @@ const Sim = (() => {
   function newGame(seed) {
     seed = (seed == null ? Math.floor(Math.random() * 1e9) : seed) | 0;
     const s = {
-      v: VERSION, seed, rng: seed, day: 1, food: 18, mat: 6, fort: 2, wall: 12, wallMax: 12,
+      v: VERSION, seed, rng: seed, day: 1, food: 21, mat: 6, fort: 2, wall: 12, wallMax: 12,
       tiles: [], surv: [], gone: [], nextId: 1, rel: [], log: [], over: null, rescueDay: null, event: null, rules: [], brute: false,
+      city: null, origin: null, queue: [], camp: null, sos: null, dog: false,
       stats: { killed: 0, recruited: 0, lost: 0, tilesLost: 0, stripped: 0 },
     };
     const bx = 1, by = 6;
@@ -341,7 +366,63 @@ const Sim = (() => {
     for (const v of [...s.surv].sort(() => rand(s) - 0.5).slice(0, 2)) makeWant(s, v);
     updateSeen(s);
     s.log.push({ d: 1, tone: 'info', msg: '停电第三天。你被推举为这栋老公寓的楼长。电台说救援会在一个月内抵达，前提是你们撑得到那时候。' });
+    // 开局两张三选一：先看城市状况，再定楼长出身
+    const draw3 = keys => { const pool = [...keys], out = []; while (out.length < 3) out.push(pool.splice(Math.floor(rand(s) * pool.length), 1)[0]); return out; };
+    s.event = { id: 'city', p: { opts: draw3(Object.keys(CITIES)), next: draw3(Object.keys(ORIGINS)) } };
     return s;
+  }
+
+  // 指定特质的新住户（特质决定的战斗加成要重新算）
+  function survivorWith(s, job, trait) {
+    const v = newSurvivor(s, job);
+    if (v.trait === 'bigeater') v.fight--;
+    v.trait = trait;
+    if (trait === 'bigeater') v.fight = Math.min(5, v.fight + 1);
+    return v;
+  }
+  const related = (s, a, b) => s.rel.some(r => (r[0] === a && r[1] === b) || (r[0] === b && r[1] === a));
+
+  function applyCity(s, k) {
+    s.city = k;
+    const ts = coords(s).map(([x, y]) => [x, y, tile(s, x, y)]);
+    if (k === 'rain') for (const [, , t] of ts) t.scream = false;
+    if (k === 'builders') for (const [, , t] of ts) if (t.t === 'ruin' || t.t === 'hardware') t.mat *= 2;
+    if (k === 'screams') {
+      for (const [x, y, t] of ts) if (!t.owned && distB(x, y) <= 3) t.z = Math.floor(t.z / 2);
+      const cand = ts.filter(([x, y, t]) => distB(x, y) >= 3 && distB(x, y) <= 6 && t.z >= 1 && t.t !== 'radio' && !t.scream);
+      for (let i = 0; i < 2 && cand.length; i++) { const t = cand.splice(Math.floor(rand(s) * cand.length), 1)[0][2]; t.scream = true; t.seen = true; }
+    }
+    s.log.push({ d: s.day, tone: 'info', msg: `城里的情况：${CITIES[k].name}。${CITIES[k].desc}` });
+  }
+
+  function applyOrigin(s, k) {
+    s.origin = k;
+    const job = n => JOBS.find(j => j.name === n);
+    if (k === 'lizhang') {
+      const a = newSurvivor(s), b = newSurvivor(s);
+      s.surv.push(a, b); s.rel.push([a.id, b.id, 'friend']);
+      s.food += 6;
+    }
+    if (k === 'boss') {
+      s.mat += 10; s.fort = Math.min(FORT_MAX, s.fort + 3);
+      const v = s.surv[s.surv.length - 1];
+      s.surv = s.surv.filter(u => u !== v);
+      s.rel = s.rel.filter(r => r[0] !== v.id && r[1] !== v.id);
+    }
+    if (k === 'veteran') {
+      const v = survivorWith(s, { name: '退伍军人', f: 5, s: 2, b: 2 }, 'nightowl');
+      v.fight = 5;
+      const others = s.surv.filter(u => !related(s, u.id, v.id));
+      s.surv.push(v);
+      if (others.length) s.rel.push([v.id, pick(s, others).id, 'feud']);
+    }
+    if (k === 'stall') { s.food += 10; s.mat = 2; s.rules.push('commune'); }
+    if (k === 'courier') {
+      for (const t of s.tiles) t.seen = true;
+      s.rules.push('deliver'); s.wallMax -= 4; s.wall = Math.min(s.wall, s.wallMax);
+    }
+    if (k === 'nurse') { s.rules.push('triage'); s.surv.push(survivorWith(s, job('护理师'), 'medic')); s.food -= 2; }
+    s.log.push({ d: s.day, tone: 'info', msg: `你以前是${ORIGINS[k].name}。${ORIGINS[k].desc}` });
   }
 
   // ---------- 任务 ----------
@@ -353,13 +434,16 @@ const Sim = (() => {
     if (!t) return false;
     if (k === 'defend') return t.owned;
     if (k === 'fortify') return t.owned && (isBase(t) || t.bar < barMax(s));
+    if (t.camp) return false;   // 别人的地盘，不能动
     if (k === 'scav') return reachable(s, x, y) && t.food + t.mat > 0;
     if (k === 'clear') return !t.owned && frontier(s, x, y) && t.z > 0 && !tr(v, 'coward');
     if (k === 'claim') return !t.owned && frontier(s, x, y) && t.z === 0;
     if (k === 'strip') return !isBase(t) && t.strip > 0 && reachable(s, x, y) && t.z === 0;
-    if (k === 'rescue') return reachable(s, x, y) && s.surv.some(u => u.want && u.want.k === 'rescue' && u.want.x === x && u.want.y === y);
+    if (k === 'rescue') return reachable(s, x, y) && (isSos(s, x, y) || s.surv.some(u => u.want && u.want.k === 'rescue' && u.want.x === x && u.want.y === y));
     return false;
   }
+
+  const isSos = (s, x, y) => !!(s.sos && s.sos.x === x && s.sos.y === y);
 
   function normTask(s, task) {
     if (task.x != null && isBase(tile(s, task.x, task.y)) && (task.k === 'defend' || task.k === 'fortify')) return { k: task.k };
@@ -472,7 +556,8 @@ const Sim = (() => {
           for (const v of g) v.task = { k: 'defend', x, y };   // 施工队留下来守第一夜
           for (const u of s.surv) if (u.want && u.want.k === 'reclaim' && u.want.x === x && u.want.y === y)
             fulfil(s, u, `${u.name}站在自家门口看了很久。`);
-          if (eff(t).radio && !s.rescueDay) {
+          if (eff(t).radio && s.city === 'noradio') L('电台修好了，可是电塔倒了，喇叭里只有杂音。只能靠自己撑到第 30 天。', 'bad');
+          else if (eff(t).radio && !s.rescueDay) {
             s.rescueDay = s.day + 4;
             L(`电台接通了！对面说救援会在第 ${s.rescueDay} 天早上到。`, 'good');
           }
@@ -512,16 +597,27 @@ const Sim = (() => {
           }
         }
         s.food += gf; s.mat += gm;
+        if (t.drop) { t.drop = false; L(`${who}在${nm}找到了空投箱。`, 'good'); }
         L(`${who}从${nm}搜回 ${gf} 食物、${gm} 材料。` + (t.food + t.mat === 0 ? '这里搜空了。' : ''));
         if (g.some(v => !v.dead && v.inj === 0)) for (const u of s.surv) if (u.want && u.want.k === 'fetch' && u.want.x === x && u.want.y === y)
           fulfil(s, u, `${who}在${nm}顺手翻到了${u.name}的${u.want.item}。`);
       } else if (k === 'rescue') {
         const asker = s.surv.find(u => u.want && u.want.k === 'rescue' && u.want.x === x && u.want.y === y);
-        if (!asker) continue;
+        const sos = isSos(s, x, y) ? s.sos : null;
+        if (!asker && !sos) continue;
         let found = false;
         for (const v of g) {
           if (t.z > 0 && rand(s) < scavRisk(s, v, t.z)) { injure(v, t.z); continue; }
           if (rand(s) < rescueOdds(t.z, Math.max(0, v.fight + bonus[v.id]))) { found = true; break; }
+        }
+        if (sos) {
+          if (found) {
+            const got = [];
+            for (let i = 0; i < sos.n; i++) { const nv = recruit(s); nv.want = null; got.push(`${nv.name}（${nv.job}）`); }
+            s.sos = null;
+            L(`${who}在${nm}找到了发求救信号的人：${got.join('、')}。`, 'good');
+          } else L(`${who}在${nm}喊了一整天，没人回应。也许他们换了地方躲。`, 'bad');
+          continue;
         }
         if (found) {
           const kin = asker.want.kin, nv = recruit(s);
@@ -550,6 +646,10 @@ const Sim = (() => {
         L(`断粮了。${v.name}半夜收拾东西走了。`, 'bad');
       }
     } else s.hunger = 0;
+    if (s.city === 'rain') {
+      const extra = s.food - s.surv.length * 6;
+      if (extra > 0) { const rot = Math.max(1, Math.floor(extra * 0.1)); s.food -= rot; L(`连日下雨，${rot} 份存粮发霉了。`); }
+    }
 
     // 夜袭：逐块结算
     const plan = nightPlan(s);
@@ -624,6 +724,15 @@ const Sim = (() => {
         L(`${v.name}一直没等到人去${w.k === 'fetch' ? `拿${w.item}` : `收回${nm}`}，整个人消沉了好几天。`, 'bad');
       }
     }
+    // 求救信号到期
+    if (s.sos && s.day >= s.sos.until) {
+      const nm = TYPES[tile(s, s.sos.x, s.sos.y).t].name;
+      if (s.sos.promised) {
+        for (const v of s.surv.filter(v => v.sulk === 0).slice(0, 2)) v.sulk = 1;
+        L(`收音机里再也没有${nm}的声音了。答应过要去的，大家心里都不好受。`, 'bad');
+      } else L(`收音机里再也没有${nm}的声音了。`);
+      s.sos = null;
+    }
     // 偶尔有人生出新的牵挂
     if (s.surv.filter(v => v.want).length < 2 && rand(s) < 0.12) {
       const cand = s.surv.filter(v => !v.want);
@@ -634,16 +743,17 @@ const Sim = (() => {
     const before = s.tiles.map(t => t.z);
     for (const [x, y] of coords(s)) {
       const t = tile(s, x, y);
-      if (t.owned) continue;
+      if (t.owned || t.camp) continue;
       const nz = nbrs(x, y).map(([a, b2]) => before[b2 * W + a]);
       const loud = t.scream || nbrs(x, y).some(([a, b2]) => tile(s, a, b2).scream);
       if (t.z > 0 && t.z < 9 && (loud || nz.some(z => z >= 3)) && rand(s) < (t.scream ? 0.35 : loud ? 0.22 : 0.12)) t.z++;
       else if (t.z === 0 && (loud || nz.some(z => z >= 2)) && rand(s) < (loud ? 0.2 : 0.08)) t.z = 1;
     }
 
-    // 偶尔冒出新的尖叫者（最多三只）
-    if (coords(s).filter(([x, y]) => tile(s, x, y).scream).length < 3 && rand(s) < 0.05) {
-      const cand = coords(s).filter(([x, y]) => { const t = tile(s, x, y); return !t.owned && !t.scream && t.z >= 3; });
+    // 偶尔冒出新的尖叫者（最多三只；尖叫季最多五只，梅雨季没有）
+    const screamCap = s.city === 'rain' ? 0 : s.city === 'screams' ? 5 : 3;
+    if (coords(s).filter(([x, y]) => tile(s, x, y).scream).length < screamCap && rand(s) < (s.city === 'screams' ? 0.1 : 0.05)) {
+      const cand = coords(s).filter(([x, y]) => { const t = tile(s, x, y); return !t.owned && !t.scream && !t.camp && t.z >= 3; });
       if (cand.length) { const [x, y] = pick(s, cand), t = tile(s, x, y); t.scream = true; t.seen = true; L(`${TYPES[t.t].name}（${x + 1},${y + 1}）那边传来尖叫声。又一只尖叫者。`, 'bad'); }
     }
 
@@ -654,9 +764,19 @@ const Sim = (() => {
     if (!s.over && s.rescueDay && s.day >= s.rescueDay) s.over = { win: true, reason: '直升机的声音从电台方向传来。你们得救了。' };
     if (!s.over && s.day > GOAL) s.over = { win: true, reason: '第三十天清晨，军方的车队开进了街口。' };
     if (s.over) { s.over.score = score(s); L(s.over.reason, s.over.win ? 'good' : 'bad'); }
-    // 明晚会不会有巨汉：白天就能从远处的动静判断出来
-    const hb = horde(s.day);
-    s.brute = !s.over && s.day >= 10 && ((hb.surge && s.day >= 21) || rand(s) < clamp((s.day - 9) * 0.03, 0, 0.3));
+    // 明晚会不会有巨汉：白天就能从远处的动静判断出来（工地旁边来得早、来得多）
+    const hb = horde(s.day, s), bd = s.city === 'builders' ? [7, 14, 0.04, 0.35] : [10, 21, 0.03, 0.3];
+    s.brute = !s.over && s.day >= bd[0] && ((hb.surge && s.day >= bd[1]) || rand(s) < clamp((s.day - bd[0] + 1) * bd[2], 0, bd[3]));
+    // 军方空投：每 4 天一箱，落在还没收复的街区
+    if (!s.over && s.city === 'airdrop' && s.day % 4 === 1) {
+      const cand = coords(s).filter(([x, y]) => { const t = tile(s, x, y); return !t.owned && !t.camp && t.t !== 'radio' && distB(x, y) >= 2 && distB(x, y) <= 6; });
+      if (cand.length) {
+        const [x, y] = pick(s, cand), t = tile(s, x, y);
+        t.food += 10; t.mat += 6; t.drop = true; t.seen = true;
+        L(`直升机低低飞过，一箱补给落在${TYPES[t.t].name}（${x + 1},${y + 1}）。`, 'good');
+      }
+    }
+    for (const v of s.surv) v.busy = 0;
 
     updateSeen(s);
     if (!s.over) rollEvent(s);
@@ -676,9 +796,19 @@ const Sim = (() => {
   const knockCost = n => n === 3 ? 5 : 3;
   const EVENTS = {
     draft: (s, p) => ({
-      draft: true,
-      text: '撑过了尸潮。天亮后大家聚在顶楼开会，要定一条新的楼规。',
+      draft: true, title: '定一条楼规',
+      text: p.text || '撑过了尸潮。天亮后大家聚在顶楼开会，要定一条新的楼规。',
       choices: p.opts.map(k => ({ key: k, line: RULES[k].line, label: RULES[k].name, note: RULES[k].desc, ok: true })),
+    }),
+    city: (s, p) => ({
+      draft: true, title: '这座城怎么了',
+      text: '停电第三天。从顶楼往外看，这座城已经不是原来的样子了。',
+      choices: p.opts.map(k => ({ key: k, line: '城况', label: CITIES[k].name, note: CITIES[k].desc, ok: true })),
+    }),
+    origin: (s, p) => ({
+      draft: true, title: '你以前是做什么的',
+      text: '楼里的人推你当楼长，是因为你以前是……',
+      choices: p.opts.map(k => ({ key: k, line: '出身', label: ORIGINS[k].name, note: ORIGINS[k].desc, ok: true })),
     }),
     knock: (s, p) => {
       const n = p.n || 2;
@@ -719,6 +849,134 @@ const Sim = (() => {
     },
   };
 
+  Object.assign(EVENTS, {
+    // ---- 国小那伙人（事件链）：结识 → 交易 / 求助 → 并入，或者结仇 → 报复
+    camp_meet: (s, p) => {
+      const nm = TYPES[tile(s, p.x, p.y).t].name;
+      return {
+        text: `${nm}（${p.x + 1},${p.y + 1}）的顶楼挂出一面床单做的旗子。那里还有另一伙人活着。`,
+        choices: [
+          { label: '派人去打个招呼', note: '交个朋友，以后也许能互相帮忙', ok: s.surv.some(ready) },
+          { label: '远远看着就好', note: '', ok: true },
+          { label: '趁他们还没站稳，夜里去抢', note: '+6 食物 +4 材料，带头的人可能受伤；他们会报复', ok: s.surv.some(ready) },
+        ],
+      };
+    },
+    camp_trade: s => ({
+      text: `${campName(s)}那伙人推着一辆推车过来，想跟你们换东西。价钱比拾荒者公道。`,
+      choices: [
+        { label: '用材料换食物', note: '-4 材料，+7 食物', ok: s.mat >= 4 },
+        { label: '用食物换材料', note: '-5 食物，+6 材料', ok: s.food >= 5 },
+        { label: '这次不换', note: '', ok: true },
+        { label: '把推车扣下来', note: '+7 食物 +5 材料，从此结仇，他们会报复', ok: s.surv.some(ready) },
+      ],
+    }),
+    camp_help: s => ({
+      text: `${campName(s)}那伙人的头来敲门：他们有个孩子烧了两天，想讨点吃的。`,
+      choices: [
+        { label: '给 4 份食物', note: '他们会记得这份人情', ok: s.food >= 4 },
+        { label: '给 2 份食物', note: '', ok: s.food >= 2 },
+        { label: '我们自己都不够', note: '关系会变差，太差的话他们会搬走', ok: true },
+      ],
+    }),
+    camp_merge: s => {
+      const n = mergeN(s), free = beds(s) - s.surv.length;
+      return {
+        text: `${campName(s)}那伙人的头又来了：「我们那边守不住了。你们愿意的话，我们想并过来。」`,
+        choices: [
+          { label: '收下他们', note: `+${n} 人，他们留下的${campName(s)}几乎不用修就能收复；新来的人里有一个跟楼里的人处不来${free < n ? '（床位不够）' : ''}`, ok: free >= n },
+          { label: '再等等', note: '', ok: true },
+        ],
+      };
+    },
+    camp_revenge: s => ({
+      text: `天还没亮，${campName(s)}那伙人摸到楼下来了，手里拿着铁管。`,
+      choices: [
+        { label: '硬顶回去', note: '铁门损伤 4 点，守门的人可能受伤', ok: true },
+        { label: '交出东西赔罪', note: `交出 ${Math.min(6, s.food)} 食物、${Math.min(4, s.mat)} 材料`, ok: true },
+      ],
+    }),
+    // ---- 发烧（事件链）：隔离、找懂护理的人看，或者赌一把
+    fever: (s, p) => {
+      const v = byId(s, p.id), m = medicFor(s, p.id);
+      return {
+        text: `${v.name}半夜发起高烧，手臂上有一道说不清是什么划的伤口。`,
+        choices: [
+          { label: '关进储藏室隔离几天', note: `${v.name}休养 3 天，不会出事`, ok: true },
+          { label: m ? `请${m.name}看看` : '找懂护理的人看看', note: m ? '懂行的人一看就知道是不是被咬了' : '楼里现在没有懂护理、能出门的人', ok: !!m },
+          { label: '照常干活，应该没事', note: '多半只是着凉', ok: true },
+        ],
+      };
+    },
+    fever2: (s, p) => {
+      const v = byId(s, p.id);
+      return {
+        text: `${v.name}的伤口发黑了，烧得说胡话，看人的眼神也不对了。`,
+        choices: [
+          { label: '趁现在送他走', note: '大家会难过，但不会有别人受伤', ok: true },
+          { label: '绑起来，再赌一晚', note: '一半机会熬过来；熬不过去的话，会有人被咬伤', ok: true },
+        ],
+      };
+    },
+    // ---- 求救信号：地图上出现一个有期限的救人目标
+    sos: (s, p) => {
+      const nm = TYPES[tile(s, p.x, p.y).t].name;
+      return {
+        text: `收音机里传来一个女人的声音：「我们 ${p.n} 个人困在（${p.x + 1},${p.y + 1}）的${nm}……求求你们……」信号断断续续。`,
+        choices: [
+          { label: '回话说一定会去', note: `4 天内派人去救人，能接回 ${p.n} 人；失约的话大家会很失望`, ok: true },
+          { label: '记下位置，但不答应', note: `一样可以去，只是他们不知道有人会来，到时候只剩 ${p.n - 1} 人`, ok: true },
+          { label: '关掉收音机', note: '', ok: true },
+        ],
+      };
+    },
+    dog: s => ({
+      text: '一只瘦巴巴的土狗在铁门外趴了一整夜，看到人就摇尾巴。',
+      choices: [
+        { label: '收留它', note: '每天多吃 1 份食物；夜里有动静它会叫，据点防御 +2', ok: true },
+        { label: '丢点剩饭，让它走', note: '-1 食物', ok: s.food >= 1 },
+        { label: '把它赶走', note: '', ok: true },
+      ],
+    }),
+    deserter: s => ({
+      text: '一个穿迷彩服的年轻人在巷口举着双手，说他是从营区跑出来的，背包里有工具和罐头。',
+      choices: [
+        { label: '让他进来', note: `+1 人，战斗 5，但一个人吃两份${beds(s) <= s.surv.length ? '（床位不够）' : ''}`, ok: beds(s) > s.surv.length },
+        { label: '收下背包，让他走', note: '+4 食物 +3 材料', ok: true },
+        { label: '不开门', note: '', ok: true },
+      ],
+    }),
+    // ---- 火灾：烧掉丧尸，也烧掉东西
+    fire: (s, p) => {
+      const nm = TYPES[tile(s, p.x, p.y).t].name;
+      return {
+        text: `${nm}（${p.x + 1},${p.y + 1}）烧起来了，风正往这边吹。`,
+        choices: [
+          { label: '派两个人去挖防火巷', note: '两个人今天出不了门；火被拦住，这一格只烧掉一半东西', ok: s.surv.filter(ready).length >= 2 },
+          { label: '让它烧', note: '这一格和旁边一格会烧成废墟：丧尸烧光，东西和建筑也烧光；附近的路障可能被烧掉', ok: true },
+        ],
+      };
+    },
+  });
+  const campName = s => s.camp ? TYPES[tile(s, s.camp.x, s.camp.y).t].name : '';
+  const campActive = s => !!(s.camp && s.camp.state === 'active');
+  const mergeN = s => beds(s) - s.surv.length >= 3 ? 3 : 2;
+  const medicFor = (s, id) => s.surv.find(u => u.id !== id && ready(u) && (tr(u, 'medic') || u.job === '护理师'));
+  // 绑在地图上的事件挑地块时，避开牵挂、求救、营地
+  const freeTile = (s, x, y) => { const t = tile(s, x, y); return !t.owned && !t.camp && t.t !== 'radio' && !isSos(s, x, y) && !wantKey(s).has(`${x},${y}`); };
+
+  function campLeave(s, z, msg) {
+    const t = tile(s, s.camp.x, s.camp.y);
+    t.camp = false; t.z = z;
+    s.camp.state = 'gone';
+    if (msg) s.log.push({ d: s.day, tone: 'info', msg });
+  }
+
+  function burn(s, x, y) {
+    const t = tile(s, x, y);
+    Object.assign(t, { t: 'ruin', z: 0, scream: false, food: 0, mat: Math.floor(t.mat / 2), strip: 0, gutted: false, prog: 0, drop: false });
+  }
+
   // 投奔的概率：有空床、人均存粮越多，越容易有人循着炊烟找上门
   function arrivalChance(s) {
     const free = beds(s) - s.surv.length, ratio = s.food / Math.max(1, s.surv.length);
@@ -729,10 +987,24 @@ const Sim = (() => {
 
   function rollEvent(s) {
     if (has(s, 'trade') && s.mat >= 7) { s.mat -= 3; s.food += 2; s.log.push({ d: s.day, tone: 'info', msg: '黑市的人一早来过，用 3 材料换了 2 食物。' }); }
-    if (s.day > 1 && s.day % 7 === 1) {
-      const pool = Object.keys(RULES).filter(k => !has(s, k)), opts = [];
-      while (opts.length < 3 && pool.length) opts.push(pool.splice(Math.floor(rand(s) * pool.length), 1)[0]);
+    if (s.day > 1 && (s.day - 1) % surgeEvery(s) === 0) {
+      const opts = draftOpts(s);
       if (opts.length) { s.event = { id: 'draft', p: { opts } }; return; }
+    }
+    // 事件链：到期的后续事件优先
+    s.queue = s.queue || [];
+    for (let i = 0; i < s.queue.length; i++) {
+      const q = s.queue[i];
+      if (q.day > s.day) continue;
+      s.queue.splice(i--, 1);
+      if (q.id === 'fever2') {
+        const v = byId(s, q.p.id);
+        if (!v) continue;
+        if (!q.p.bit) { s.log.push({ d: s.day, tone: 'good', msg: `${v.name}退烧了，只是着凉。` }); continue; }
+      }
+      if (q.id === 'camp_revenge' && !(s.camp && s.camp.state === 'hostile')) continue;
+      s.event = { id: q.id, p: q.p };
+      return;
     }
     const pa = arrivalChance(s);
     if (pa && rand(s) < pa) {
@@ -740,12 +1012,48 @@ const Sim = (() => {
       s.event = { id: 'knock', p: { n: free >= 3 && ratio >= 7 ? 3 : 2 } };
       return;
     }
-    if (rand(s) >= 0.25) return;
+    if (rand(s) >= 0.3) return;
     const pool = ['knock', 'truck', 'trade'];
     const feud = s.rel.find(([a, b, k]) => k === 'feud' && byId(s, a) && byId(s, b));
     if (feud) pool.push('feud', 'feud');
+    const spots = (types, d0, d1) => coords(s).filter(([x, y]) => types.includes(tile(s, x, y).t) && distB(x, y) >= d0 && distB(x, y) <= d1 && freeTile(s, x, y) && !tile(s, x, y).scream);
+    const campSpots = s.camp || s.day < 4 ? [] : (spots(['school'], 3, 7).length ? spots(['school'], 3, 7) : spots(['house'], 3, 6));
+    if (campSpots.length) pool.push('camp_meet', 'camp_meet');
+    if (campActive(s)) { pool.push('camp_trade', 'camp_trade'); if (s.camp.rep >= 0) pool.push('camp_help'); if (s.camp.rep >= 3) pool.push('camp_merge', 'camp_merge', 'camp_merge'); }
+    const ready_ = s.surv.filter(ready);
+    if (s.day >= 6 && ready_.length >= 3 && !s.queue.some(q => q.id === 'fever2')) pool.push('fever');
+    const sosSpots = s.sos || s.day < 3 ? [] : spots(['house', 'school', 'mart', 'hospital'], 2, 5);
+    if (sosSpots.length) pool.push('sos');
+    if (!s.dog && !s.dogSeen) pool.push('dog');
+    if (s.day >= 5 && !s.deserterSeen) pool.push('deserter');
+    const fireSpots = s.day < 5 ? [] : coords(s).filter(([x, y]) => { const t = tile(s, x, y); return t.seen && !['ruin', 'park'].includes(t.t) && distB(x, y) >= 2 && distB(x, y) <= 5 && freeTile(s, x, y); });
+    if (fireSpots.length) pool.push('fire');
     const id = pick(s, pool);
-    s.event = { id, p: id === 'feud' ? { a: feud[0], b: feud[1] } : id === 'knock' ? { n: 2 } : {} };
+    let p = {};
+    if (id === 'feud') p = { a: feud[0], b: feud[1] };
+    else if (id === 'knock') p = { n: 2 };
+    else if (id === 'camp_meet') { const [x, y] = pick(s, campSpots); p = { x, y }; }
+    else if (id === 'fever') p = { id: pick(s, ready_).id, bit: rand(s) < 0.35 };
+    else if (id === 'sos') { const [x, y] = pick(s, sosSpots); p = { x, y, n: ri(s, 2, 3) }; }
+    else if (id === 'fire') { const [x, y] = pick(s, fireSpots); p = { x, y }; }
+    if (id === 'dog') s.dogSeen = true;
+    if (id === 'deserter') s.deserterSeen = true;
+    s.event = { id, p };
+  }
+
+  function draftOpts(s) {
+    const pool = Object.keys(RULES).filter(k => !has(s, k)), opts = [];
+    while (opts.length < 3 && pool.length) opts.push(pool.splice(Math.floor(rand(s) * pool.length), 1)[0]);
+    return opts;
+  }
+
+  function campRaid(s, L) {
+    const v = s.surv.filter(ready).sort((a, b) => b.fight - a.fight)[0];
+    s.food += 6; s.mat += 4;
+    s.camp.state = 'hostile';
+    s.queue.push({ day: s.day + ri(s, 3, 5), id: 'camp_revenge', p: {} });
+    if (rand(s) < 0.4) { v.inj = INJ_DAYS; L(`${v.name}带人夜袭了${campName(s)}，抢回 6 食物 4 材料，但自己挨了一刀。`, 'bad'); }
+    else L(`${v.name}带人夜袭了${campName(s)}，抢回 6 食物 4 材料。`, 'bad');
   }
 
   function eventView(s) {
@@ -761,7 +1069,108 @@ const Sim = (() => {
     const L = (msg, tone = 'info') => s.log.push({ d: s.day, msg, tone });
     const { id, p } = s.event;
     s.event = null;
-    if (id === 'draft') {
+    if (id === 'city') {
+      applyCity(s, p.opts[i]);
+      s.event = { id: 'origin', p: { opts: p.next } };
+    } else if (id === 'origin') {
+      applyOrigin(s, p.opts[i]);
+      if (s.city === 'noradio') s.event = { id: 'draft', p: { opts: draftOpts(s), text: '电塔倒了，只能靠自己。大家聚在顶楼，先定一条楼规。' } };
+    } else if (id === 'camp_meet') {
+      const t = tile(s, p.x, p.y);
+      s.camp = { x: p.x, y: p.y, rep: i === 0 ? 1 : 0, state: 'active' };
+      t.camp = true; t.z = 0; t.seen = true; t.scream = false;
+      if (i === 0) L(`你派人去${TYPES[t.t].name}打了招呼。对方有五六个人，客客气气的，说以后可以互相换点东西。`, 'good');
+      else if (i === 1) L(`你没去打扰${TYPES[t.t].name}那伙人。`);
+      else campRaid(s, L);
+    } else if (id === 'camp_trade') {
+      if (i === 0) { s.mat -= 4; s.food += 7; s.camp.rep++; L(`跟${campName(s)}那伙人用 4 材料换了 7 份食物。`); }
+      else if (i === 1) { s.food -= 5; s.mat += 6; s.camp.rep++; L(`跟${campName(s)}那伙人用 5 份食物换了 6 材料。`); }
+      else if (i === 2) L(`${campName(s)}那伙人推着车回去了。`);
+      else { s.food += 7; s.mat += 5; s.camp.state = 'hostile'; s.queue.push({ day: s.day + ri(s, 3, 5), id: 'camp_revenge', p: {} }); L(`你们把${campName(s)}那伙人的推车扣了下来，+7 食物 +5 材料。他们走的时候一句话都没说。`, 'bad'); }
+    } else if (id === 'camp_help') {
+      if (i === 0) { s.food -= 4; s.camp.rep += 2; L(`你让人送了 4 份食物去${campName(s)}。对方的头红着眼睛道谢。`, 'good'); }
+      else if (i === 1) { s.food -= 2; s.camp.rep++; L(`你让人送了 2 份食物去${campName(s)}。`); }
+      else {
+        s.camp.rep--;
+        if (s.camp.rep <= -2) campLeave(s, 2, `${campName(s)}那伙人连夜搬走了，没跟任何人打招呼。`);
+        else L(`你回绝了${campName(s)}那伙人。对方没说什么，转身走了。`);
+      }
+    } else if (id === 'camp_merge') {
+      if (i === 0) {
+        const n = mergeN(s), t = tile(s, s.camp.x, s.camp.y), olds = [...s.surv];
+        const got = [];
+        for (let k = 0; k < n; k++) { const nv = recruit(s); nv.want = null; got.push(nv); }
+        const a = pick(s, got), b = pick(s, olds.filter(u => !related(s, u.id, a.id)));
+        if (b && !tr(a, 'charmer') && !tr(b, 'charmer')) s.rel.push([a.id, b.id, 'feud']);
+        campLeave(s, 0);
+        t.prog = Math.max(t.prog, TYPES[t.t].cost - 1); t.food += 4; t.mat += 4;
+        L(`${campName(s)}那伙人搬了进来：${got.map(v => `${v.name}（${v.job}）`).join('、')}。他们留下的地方随时可以收复。${b && related(s, a.id, b.id) ? `${a.name}和${b.name}以前就有过节。` : ''}`, 'good');
+      } else L(`你说再考虑考虑。对方点点头，回去了。`);
+    } else if (id === 'camp_revenge') {
+      if (i === 0) {
+        s.wall = Math.max(1, s.wall - 4);
+        const g = s.surv.filter(ready);
+        if (g.length && rand(s) < 0.5) { const v = pick(s, g); v.inj = INJ_DAYS; L(`你们隔着铁门打了一架，铁门损伤 4 点，${v.name}被铁管砸伤了。`, 'bad'); }
+        else L('你们隔着铁门打了一架，铁门损伤 4 点。对方骂骂咧咧地退走了。', 'bad');
+      } else {
+        const f = Math.min(6, s.food), m = Math.min(4, s.mat);
+        s.food -= f; s.mat -= m;
+        L(`你交出了 ${f} 份食物、${m} 份材料。对方收下东西，没再说什么。`, 'bad');
+      }
+      campLeave(s, 2, `之后再也没见过${campName(s)}那伙人。`);
+    } else if (id === 'fever') {
+      const v = byId(s, p.id), m = medicFor(s, p.id);
+      if (i === 0) { v.inj = INJ_DAYS; L(`${v.name}被关进储藏室隔离。`); }
+      else if (i === 1) {
+        if (p.bit) { v.inj = INJ_DAYS; L(`${m.name}一眼认出是咬伤，赶紧清创、隔离。${v.name}得躺几天，但应该能熬过去。`, 'good'); }
+        else L(`${m.name}看了看：只是着凉，伤口是铁皮划的。${v.name}照常干活。`, 'good');
+      } else { s.queue.push({ day: s.day + 2, id: 'fever2', p: { id: v.id, bit: p.bit } }); L(`${v.name}说自己没事，照常出门。`); }
+    } else if (id === 'fever2') {
+      const v = byId(s, p.id);
+      const kill = () => { s.surv = s.surv.filter(u => u.id !== v.id); s.gone.push(v.name); s.stats.lost++; };
+      if (i === 0) { kill(); L(`你们在顶楼送走了${v.name}。那天晚上没人说话。`, 'bad'); }
+      else if (rand(s) < 0.5) {
+        kill();
+        const g = s.surv.filter(ready);
+        const u = g.length ? pick(s, g) : null;
+        if (u) u.inj = INJ_DAYS;
+        L(`半夜储藏室里传出撞门声。${v.name}已经不是${v.name}了。${u ? `${u.name}在制住他的时候被咬伤了。` : ''}`, 'bad');
+      } else { v.inj = INJ_DAYS; L(`${v.name}烧了一整夜，天亮时退烧了。没人知道是怎么熬过来的。`, 'good'); }
+    } else if (id === 'sos') {
+      if (i < 2) {
+        s.sos = { x: p.x, y: p.y, n: i === 0 ? p.n : p.n - 1, until: s.day + 4, promised: i === 0 };
+        tile(s, p.x, p.y).seen = true;
+        L(i === 0 ? `你回话说会去。对方哭了。地图上标出了${TYPES[tile(s, p.x, p.y).t].name}的位置。` : `你记下了${TYPES[tile(s, p.x, p.y).t].name}的位置，没有回话。`);
+      } else L('你关掉了收音机。');
+    } else if (id === 'dog') {
+      if (i === 0) { s.dog = true; L('土狗有了名字，叫「来福」。它晚上睡在铁门后面。', 'good'); }
+      else if (i === 1) { s.food -= 1; L('土狗吃完剩饭，在巷口回头看了一眼，走了。'); }
+      else L('土狗夹着尾巴跑开了。');
+    } else if (id === 'deserter') {
+      if (i === 0) {
+        const v = survivorWith(s, { name: '逃兵', f: 5, s: 2, b: 2 }, 'bigeater');
+        v.fight = 5; s.surv.push(v); s.stats.recruited++;
+        L(`${v.name}（逃兵）进了楼。他很能打，饭量也大。`, 'good');
+      } else if (i === 1) { s.food += 4; s.mat += 3; L('你收下了背包。年轻人看了你一眼，走进雨里。'); }
+      else L('你没有开门。');
+    } else if (id === 'fire') {
+      const t = tile(s, p.x, p.y), nm = TYPES[t.t].name;
+      if (i === 0) {
+        const g = s.surv.filter(ready).sort(() => rand(s) - 0.5).slice(0, 2);
+        for (const v of g) v.busy = 1;
+        t.food = Math.floor(t.food / 2); t.mat = Math.floor(t.mat / 2);
+        L(`${g.map(v => v.name).join('、')}去挖了一天防火巷，火在${nm}被拦住了，里面的东西烧掉一半。`);
+      } else {
+        const next = nbrs(p.x, p.y).filter(([a, b]) => freeTile(s, a, b) && !isBase(tile(s, a, b)));
+        const hit = [[p.x, p.y]];
+        if (next.length) hit.push(pick(s, next));
+        const names = hit.map(([a, b]) => TYPES[tile(s, a, b).t].name);
+        for (const [a, b] of hit) burn(s, a, b);
+        let bars = 0;
+        for (const [a, b] of hit) for (const [c, d] of nbrs(a, b)) { const o = tile(s, c, d); if (o.owned && !isBase(o) && o.bar > 0 && rand(s) < 0.3) { o.bar = 0; bars++; } }
+        L(`火从${names.join('烧到')}，烧了一整天。里面的丧尸烧光了，东西也是。${bars ? `旁边 ${bars} 处路障被烧掉了。` : ''}`, 'bad');
+      }
+    } else if (id === 'draft') {
       const k = p.opts[i];
       s.rules.push(k);
       if (k === 'irongate') { s.wallMax += 6; s.wall = s.wallMax; }
@@ -811,12 +1220,16 @@ const Sim = (() => {
     if (s.v < 3) s.v = 3; // v2 → v3：住户没有牵挂也能正常运行
     if (s.v < 5) { s.brute = !!s.brute; } // v4 → v5：没有尖叫者也能运行
     if (s.v < 4) { s.rules = s.rules || []; for (const v of s.surv) if (!v.trait) v.trait = Object.keys(TRAITS)[(v.id * 7) % 10]; s.v = 4; }
+    if (s.v < 6) { // v5 → v6：旧存档没有城市状况和出身，按老规则继续
+      s.city = s.city || null; s.origin = s.origin || null; s.queue = s.queue || [];
+      s.camp = s.camp || null; s.sos = s.sos || null; s.dog = !!s.dog;
+    }
     s.v = VERSION;
     return s;
   }
 
   return {
-    VERSION, W, H, GOAL, FORT_MAX, BAR_MAX, TYPES, TRAITS, RULES, barMax, foodUse, has,
+    VERSION, W, H, GOAL, FORT_MAX, BAR_MAX, TYPES, TRAITS, RULES, CITIES, ORIGINS, barMax, foodUse, has, surgeEvery, surgeIn,
     newGame, endDay, setTask, canDo, preview, resolveEvent, eventView,
     nightPlan, tileDefense, horde, beds, income, owned, tile, reachable, frontier, byId, ready, score, eff, tname,
     arrivalChance, serialize, deserialize, SKILL,

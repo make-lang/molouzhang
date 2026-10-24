@@ -156,7 +156,7 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
 .card .ln { align-self: flex-start; padding: 0 3px; border: 1px solid currentColor; line-height: 12px; }
 .card b { font-weight: 400; color: var(--amber); }
 .card span.d { color: var(--ink); }
-.ln-堡垒 { color: #74a6dc; } .ln-拆迁 { color: #c88a3e; } .ln-大家庭 { color: var(--kin); } .ln-远征 { color: var(--good); } .ln-通用 { color: var(--dim); }
+.ln-堡垒 { color: #74a6dc; } .ln-拆迁 { color: #c88a3e; } .ln-大家庭 { color: var(--kin); } .ln-远征 { color: var(--good); } .ln-通用 { color: var(--dim); } .ln-城况 { color: #e2654b; } .ln-出身 { color: #d6b98a; }
 .rules { display: flex; flex-direction: column; gap: 4px; }
 #dlg ol { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
 .big { font-size: 24px; line-height: 26px; color: var(--amber); }
@@ -248,7 +248,7 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
   // ---------- 头像 ----------
   const SKIN = ['#f1c9a0', '#dcae84', '#c48d64', '#a8724e'];
   const HAIR = ['#2a2420', '#3d2c22', '#5a3a26', '#1b1b25', '#6b4a2e'];
-  const SHIRT = { '退休警察': '#3f5f9a', '水电工': '#c4762f', '夜市摊贩': '#c94f45', '护理师': '#7fbcb0', '外送员': '#5aa65a', '国中老师': '#8a7cc4', '健身教练': '#d44f7c', '装潢师傅': '#9a8a5a', '里长': '#b0a070', '大学生': '#5e88c4', '保全': '#4a4f5c', '菜贩': '#6c9a3a' };
+  const SHIRT = { '退休警察': '#3f5f9a', '水电工': '#c4762f', '夜市摊贩': '#c94f45', '护理师': '#7fbcb0', '外送员': '#5aa65a', '国中老师': '#8a7cc4', '健身教练': '#d44f7c', '装潢师傅': '#9a8a5a', '里长': '#b0a070', '大学生': '#5e88c4', '保全': '#4a4f5c', '菜贩': '#6c9a3a', '退伍军人': '#55663a', '逃兵': '#55663a' };
   const hsh = n => { let h = 2166136261; for (const ch of String(n)) h = Math.imul(h ^ ch.charCodeAt(0), 16777619); return h >>> 0; };
   function portrait(c, v) {
     const g = c.getContext('2d'), h = hsh(v.name);
@@ -330,6 +330,9 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
     const here = S.surv.filter(v => Sim.ready(v) && v.task.x === x && v.task.y === y);
     here.forEach((v, i) => { const hx = ox + 2 + i * 3, hy = oy + 1; px(hx, hy, 1, 1, '#f1c9a0'); px(hx, hy + 1, 1, 2, v.id === selSurv && tk % 2 ? '#ffffff' : TASKC[v.task.k]); });
     if (S.surv.some(v => v.want && v.want.x === x && v.want.y === y)) { px(ox + 12, oy + 1, 1, 7, '#ebe4cf'); px(ox + 13, oy + 1, 3, 3, '#ea92b2'); }
+    if (S.sos && S.sos.x === x && S.sos.y === y) { px(ox + 12, oy + 1, 1, 7, '#ebe4cf'); if (REDUCED || tk % 2) px(ox + 13, oy + 1, 3, 3, '#74a6dc'); }
+    if (t.camp) { px(ox + 2, oy + 1, 1, 6, '#ebe4cf'); px(ox + 3, oy + 1, 4, 3, S.camp && S.camp.state === 'hostile' ? '#e2654b' : '#ebe4cf'); }
+    if (t.drop) { px(ox + 5, oy + 9, 6, 5, '#7c6440'); px(ox + 5, oy + 9, 6, 1, '#c88a3e'); px(ox + 7, oy + 9, 2, 5, '#5aa65a'); }
     if (t.owned) frameIn(ox, oy, '#f0b04a');
     const f = PLAN.fronts.find(f => f.x === x && f.y === y);
     if (f && f.state !== 'safe' && (REDUCED || tk % 2)) {
@@ -363,7 +366,7 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
     if (!p) { tip.hidden = true; hover = null; return; }
     if (!hover || hover.x !== p.x || hover.y !== p.y) { hover = p; drawMap(); }
     const t = Sim.tile(S, p.x, p.y);
-    tip.textContent = !t.seen ? '未探明' : Sim.tname(t) + (t.owned ? ' · 我方' : t.z ? ` · 丧尸 ${t.z}` : ' · 安全') + (t.scream ? ' · 尖叫者' : '');
+    tip.textContent = !t.seen ? '未探明' : Sim.tname(t) + (t.owned ? ' · 我方' : t.z ? ` · 丧尸 ${t.z}` : ' · 安全') + (t.scream ? ' · 尖叫者' : '') + (t.camp ? ' · 另一伙人' : '') + (t.drop ? ' · 空投' : '');
     tip.hidden = false;
     tip.style.left = Math.max(0, Math.min(256 - tip.offsetWidth, p.x * 32 + 16 - tip.offsetWidth / 2)) + 'px';
     tip.style.top = (p.y === 0 ? 34 : p.y * 32 - 18) + 'px';
@@ -386,6 +389,7 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
   function taskText(v) {
     if (v.inj > 0) return { t: `受伤 · 休养 ${v.inj} 天`, hurt: true };
     if (v.sulk > 0) return { t: '在房里赌气', hurt: true };
+    if (v.busy) return { t: '今天在外面忙', hurt: true };
     const k = v.task.k, at = v.task.x != null;
     if (k === 'defend') return { t: at ? `驻守 ${where(v.task.x, v.task.y)}` : '留守据点' };
     if (k === 'fortify') return { t: at ? `堆路障 ${where(v.task.x, v.task.y)}` : '加固据点' };
@@ -406,7 +410,7 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
   function renderHud() {
     const inc = Sim.income(S), net = inc.food - Sim.foodUse(S), beds = Sim.beds(S);
     const left = S.rescueDay ? S.rescueDay - S.day : Sim.GOAL - S.day + 1;
-    const surge = 7 - (S.day % 7 || 7), pa = Sim.arrivalChance(S);
+    const surge = Sim.surgeIn(S), pa = Sim.arrivalChance(S);
     $('hud').innerHTML = `
       <span class="res">${ic('sun')} 第 ${Math.min(S.day, Sim.GOAL)}<small>/${Sim.GOAL}天</small></span>
       <span class="res" title="食物：库存 / 每天净变化">${ic('food', '食物')}<span class="${S.food + net < 0 ? 'c-red' : ''}">${S.food}</span><small class="${net < 0 ? 'c-amber' : ''}">${net >= 0 ? '+' : ''}${net}</small></span>
@@ -479,7 +483,7 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
     if (k === 'scav') return t.food + t.mat > 0;
     if (k === 'clear') return !t.owned && t.z > 0 && Sim.frontier(S, x, y);
     if (k === 'claim') return !t.owned && t.z === 0 && Sim.frontier(S, x, y);
-    if (k === 'rescue') return S.surv.some(u => u.want && u.want.k === 'rescue' && u.want.x === x && u.want.y === y);
+    if (k === 'rescue') return (S.sos && S.sos.x === x && S.sos.y === y) || S.surv.some(u => u.want && u.want.k === 'rescue' && u.want.x === x && u.want.y === y);
   }
   const onTile = (v, x, y) => isBaseT(Sim.tile(S, x, y)) ? (v.task.x == null || (v.task.x === x && v.task.y === y)) : (v.task.x === x && v.task.y === y);
 
@@ -506,10 +510,19 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
     else if (t.z > 0) chip = `<span class="chip c-z">丧尸 ${t.z}</span>`;
     else chip = '<span class="chip c-good">暂时安全</span>';
     if (t.scream) chip += '<span class="chip c-red">尖叫者</span>';
+    if (t.drop) chip += '<span class="chip c-good">空投</span>';
     let h = `<div class="th"><b>${Sim.tname(t)}</b>${chip}<span class="dim">${x + 1},${y + 1}</span></div>
-      <div class="desc">${t.gutted ? '拆了一部分，原本的用处没了。' : ty.desc}${!t.owned && t.prog ? ` 施工 ${t.prog}/${ty.cost}。` : ''}</div>`;
+      <div class="desc">${t.gutted ? '拆了一部分，原本的用处没了。' : t.t === 'radio' && S.city === 'noradio' ? '电塔倒了，这里修好了也叫不来救援。' : ty.desc}${!t.owned && t.prog ? ` 施工 ${t.prog}/${ty.cost}。` : ''}</div>`;
     if (t.scream) h += `<div class="box fail"><span class="c-red">尖叫者</span><br><span class="dim">它让这里和四周的丧尸长得更快，夜里会把尸群引向它那一侧。把这一格清空就能解决它。</span></div>`;
     if (t.seen && !base) h += `<div class="kv">${ic('food')}${t.food}　${ic('mat')}${t.mat}${t.strip > 0 ? `　<span class="dim">可拆 ${t.strip}</span>` : ''}</div>`;
+    if (t.camp) {
+      const hostile = S.camp && S.camp.state === 'hostile';
+      h += `<div class="box ${hostile ? 'fail' : 'kin'}"><span class="${hostile ? 'c-red' : 'c-kin'}">${hostile ? '结了仇的那伙人' : '另一伙幸存者'}</span><br><span class="dim">${hostile ? '你们抢过他们，他们迟早会找上门。' : '这里是他们的地盘，不能搜刮、清理或收复。他们在的时候，替你挡住了这一侧的尸群。'}</span></div>`;
+    }
+    if (S.sos && S.sos.x === x && S.sos.y === y) {
+      const d = S.sos.until - S.day;
+      h += `<div class="box kin"><span style="color:#74a6dc">求救信号：${S.sos.n} 个人困在这里</span><br><span class="dim">${d <= 0 ? '今晚是最后期限。' : `还剩 ${d} 天。`}派人来救人就能接回来。${S.sos.promised ? '你答应过他们。' : ''}${reach ? '' : '先把地盘推过来。'}</span></div>`;
+    }
     for (const u of S.surv.filter(u => u.want && u.want.x === x && u.want.y === y)) {
       const d = daysLeft(u.want);
       h += `<div class="box kin"><span class="c-kin">${ic('flag')} ${u.name}：${u.want.txt}</span><br><span class="dim">${d <= 0 ? '今晚是最后期限。' : `还剩 ${d} 天。`}${WANT_HOW[u.want.k]}${reach ? '' : '先把地盘推过来。'}</span></div>`;
@@ -524,6 +537,7 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
       } else h += `<div class="box safe dim">${ic('moon')} 在地盘内侧，今晚安全。</div>`;
     }
     if (!t.seen || !reach) return h + `<div class="dim">离地盘太远。先收复相邻的街区。</div>`;
+    if (t.camp) return h;
     const v = selSurv != null ? Sim.byId(S, selSurv) : null;
     const keys = (t.owned ? ['rescue', 'defend', 'fortify', 'scav', 'strip'] : ['rescue', 'scav', 'clear', 'claim', 'strip']).filter(k => relevant(t, x, y, k));
     if (!keys.length) return h + `<div class="dim">这里没什么可做的。</div>`;
@@ -611,10 +625,12 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
         <li>夜里尸群会从每块和未收复街区接壤的地盘进攻，边界越长来得越多，地图边缘不会来丧尸。底栏和“今晚”分页会提前标出守不住的地方，地图上会闪红。</li>
         <li>边界街区守不住就会丢，和据点断开的地块也会一起丢。据点守不住会撞坏铁门，铁门撞开就输了。</li>
         <li>清干净的街区可以花几天收复，长期提供床位、食物或防御；也可以拆掉，一次换一大笔材料。</li>
-        <li>存粮够、还有空床，会有人来投奔。每 7 天一次尸潮。撑过第 30 夜，或者收复电台叫来救援，就算赢。</li>
+        <li>开局先选城里的情况，再选你以前是做什么的。两样都会改变这一局的打法，每次三选一。</li>
+        <li>存粮够、还有空床，会有人来投奔。通常每 7 天一次尸潮。撑过第 30 夜，或者收复电台叫来救援，就算赢。</li>
         <li>每个住户都有一个特质（名字旁边的字），鼠标停在卡片上能看说明。每次撑过尸潮，第二天早上从三张楼规里选一张，效果持续到这局结束；不同的楼规会把你推向不同的打法。</li>
         <li>地图上张着嘴、带红色声波的是尖叫者：它让周围丧尸长得更快，还会把夜袭引过来，清空那一格就能解决它。第 10 天以后，有些夜里会来巨汉，白天就会预告；那晚街区路障只算一半。</li>
         <li>住户之间有旧识和过节。有人心里有牵挂（粉色小旗）：救家人、拿东西、收回老家、不准拆某栋楼。达成了他会更卖力，放着不管会出事。</li>
+        <li>清晨偶尔会有事找上门：街区里的另一伙人（白旗）、收音机里的求救信号（蓝旗）、发烧的住户、烧起来的楼。有些事会接着发展好几天。</li>
       </ol>
       <div class="row"><button class="btn primary" id="d-ok">开始</button></div>`, () => { $('d-ok').onclick = closeDlg; });
     if (mode === 'new') return dlg(`<h2>开新的一局？</h2><p>现在的进度会被覆盖。想留着的话，先去存档里复制一份。</p>
@@ -633,11 +649,11 @@ img.ic { width: 8px; height: 8px; image-rendering: pixelated; display: inline-bl
         $('d-close').onclick = closeDlg;
       });
     if (mode === 'rules') return dlg(`<h2>楼规</h2>
-      <div class="rules scroll" style="max-height:220px">${S.rules.length ? S.rules.map(k => { const r = Sim.RULES[k]; return `<div><span class="ln ln-${r.line} chip">${r.line}</span> <span class="c-amber">${r.name}</span> <span class="dim">${r.desc}</span></div>`; }).join('') : '<p class="dim">还没有楼规。每次撑过尸潮（第 7、14、21、28 夜），第二天早上会从三张里选一张。</p>'}</div>
+      <div class="rules scroll" style="max-height:220px">${S.city ? `<div><span class="ln ln-城况 chip">城况</span> <span class="c-amber">${Sim.CITIES[S.city].name}</span> <span class="dim">${Sim.CITIES[S.city].desc}</span></div>` : ''}${S.origin ? `<div><span class="ln ln-出身 chip">出身</span> <span class="c-amber">${Sim.ORIGINS[S.origin].name}</span> <span class="dim">${Sim.ORIGINS[S.origin].desc}</span></div>` : ''}${S.rules.length ? S.rules.map(k => { const r = Sim.RULES[k]; return `<div><span class="ln ln-${r.line} chip">${r.line}</span> <span class="c-amber">${r.name}</span> <span class="dim">${r.desc}</span></div>`; }).join('') : `<p class="dim">还没有楼规。每次撑过尸潮（每 ${Sim.surgeEvery(S)} 天一次），第二天早上会从三张里选一张。</p>`}</div>
       <div class="row"><button class="btn primary" id="d-ok">关闭</button></div>`, () => { $('d-ok').onclick = closeDlg; });
     if (S.event && Sim.eventView(S).draft) {
       const ev = Sim.eventView(S);
-      return dlg(`<h2>${ic('sun')}定一条楼规</h2><p class="dim">${ev.text}</p>
+      return dlg(`<h2>${ic('sun')}${ev.title || '定一条楼规'}</h2><p class="dim">${ev.text}</p>
         <div class="cards">${ev.choices.map((c, i) => `<button class="btn card" data-c="${i}"><span class="ln ln-${c.line}">${c.line}</span><b>${c.label}</b><span class="d">${c.note}</span></button>`).join('')}</div>`,
         () => $('dlg').querySelectorAll('[data-c]').forEach(b => b.onclick = () => commit(Sim.resolveEvent(S, +b.dataset.c))));
     }

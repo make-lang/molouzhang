@@ -44,6 +44,11 @@ function policy(s, opt) {
       tasks[v.id] = { k: k === 'rescue' ? 'rescue' : 'scav', x, y };
     }
   }
+  // 求救信号：跟牵挂里的救人一样，派最能打的人去
+  if (opt.wants && s.sos && Sim.reachable(s, s.sos.x, s.sos.y)) {
+    free.sort((a, b) => b.fight - a.fight);
+    const v = free.shift(); if (v) tasks[v.id] = { k: 'rescue', x: s.sos.x, y: s.sos.y };
+  }
   for (const v of free) {
     // 加固：缺口最大的边界
     const worst = fronts.filter(f => f.base ? s.fort < Sim.FORT_MAX : Sim.tile(s, f.x, f.y).bar < Sim.barMax(s))
@@ -75,6 +80,11 @@ function run(seed, opt) {
       }
       let i = view.choices.findIndex(c => c.ok && !/赌气/.test(c.note));
       if (s.event.id === 'knock' && s.food / (s.surv.length + (s.event.p.n || 2)) < (opt.knockRatio ?? 4)) i = 2;
+      // 会多张嘴的事件，跟敲门一样先看存粮：人均不到 4 份就不接
+      const lowFood = add => s.food / (s.surv.length + add) < (opt.knockRatio ?? 4);
+      const DECLINE = { deserter: [1, 2], camp_merge: [3, 1], sos: [3, 2], dog: [1, 2], camp_help: [0, 2] };
+      const d = DECLINE[s.event.id];
+      if (d && lowFood(d[0])) i = d[1];
       s = Sim.resolveEvent(s, i >= 0 ? i : view.choices.findIndex(c => c.ok));
       continue;
     }
@@ -88,7 +98,7 @@ function run(seed, opt) {
 const N = +process.argv[2] || 400;
 const variants = [
   ['不管尖叫者', { maxEdges: 14, strip: true, wants: true }],
-  ['优先打尖叫者', { maxEdges: 14, strip: true, wants: true, hunt: true }],
+  ['优先打尖叫者', { maxEdges: 14, strip: true, wants: true, hunt: true, detail: true }],
 ];
 for (const [name, opt] of variants) {
   const res = []; for (let i = 0; i < N; i++) res.push(run(1000 + i, opt));
@@ -96,7 +106,9 @@ for (const [name, opt] of variants) {
   const avg = f => (res.reduce((a, r) => a + f(r), 0) / res.length).toFixed(1);
   const f20 = res.filter(r => r.food20 != null).map(r => r.food20).sort((a, b) => a - b);
   const med = f20.length ? f20[Math.floor(f20.length / 2)] : '-';
+  const by = (key, table) => Object.keys(table).map(k => { const g = res.filter(r => r.s[key] === k); return g.length ? `${table[k].name} ${(g.filter(r => r.s.over.win).length / g.length * 100).toFixed(0)}%(${g.length})` : ''; }).filter(Boolean).join('  ');
   const lossDays = res.filter(r => !r.s.over.win).map(r => r.s.day - 1).sort((a, b) => a - b);
   const q = p => lossDays.length ? lossDays[Math.floor(p * (lossDays.length - 1))] : '-';
   console.log(`${name.padEnd(12)} 胜率 ${(wins / N * 100).toFixed(0)}%  失败日 p25/50/75 ${q(.25)}/${q(.5)}/${q(.75)}  第20天食物中位数 ${med}  峰值地块 ${avg(r => r.maxOwned)}  终局人数 ${avg(r => r.s.surv.length)}  丢地 ${avg(r => r.s.stats.tilesLost)}  投奔 ${avg(r => r.s.stats.recruited)}  失去 ${avg(r => r.s.stats.lost)}`);
+  if (opt.detail) console.log(`  城况：${by('city', Sim.CITIES)}\n  出身：${by('origin', Sim.ORIGINS)}`);
 }
