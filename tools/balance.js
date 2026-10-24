@@ -2,10 +2,12 @@
 const Sim = require('../src/sim.js');
 const { W, H, TYPES } = Sim;
 
-// 装备：急救包给最能打的伤员；仓库里的东西按用处发给最合适的人
+// 装备：急救包先救被咬的人，再给最能打的伤员（留一个备着防咬伤）；仓库里的东西按用处发给最合适的人
 function gearUp(s, opt) {
   if (opt.noGear) return s;
-  for (const v of s.surv.filter(v => v.inj > 0).sort((a, b) => b.fight - a.fight)) if (s.stash.includes('medkit')) s = Sim.useMedkit(s, v.id);
+  for (const v of s.surv.filter(v => v.inf > 0)) if (s.stash.includes('medkit')) s = Sim.useMedkit(s, v.id);
+  const kits = () => s.stash.filter(k => k === 'medkit').length;
+  for (const v of s.surv.filter(v => v.inj > 0 && !v.inf).sort((a, b) => b.fight - a.fight)) if (kits() > (opt.kitReserve ?? 1)) s = Sim.useMedkit(s, v.id);
   const want = { axe: v => v.fight, helmet: v => v.fight + v.scav, crowbar: v => v.scav, walkie: v => v.fight, bike: v => v.scav };
   for (const k of ['axe', 'crowbar', 'helmet', 'walkie', 'bike']) {
     while (s.stash.includes(k)) {
@@ -129,6 +131,7 @@ function run(seed, opt) {
         s = Sim.resolveEvent(s, Math.max(0, i)); continue;
       }
       let i = view.choices.findIndex(c => c.ok && !/赌气/.test(c.note));
+      if (s.event.id === 'turn') i = view.choices[2].ok ? 2 : 0;   // 有急救包就救，没有就送走
       if (s.event.id === 'knock' && s.food / (s.surv.length + (s.event.p.n || 2)) < (opt.knockRatio ?? 4)) i = 2;
       // 会多张嘴的事件，跟敲门一样先看存粮：人均不到 4 份就不接
       const lowFood = add => s.food / (s.surv.length + add) < (opt.knockRatio ?? 4);

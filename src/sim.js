@@ -1,6 +1,7 @@
 // 末日楼长 · 模拟层 v0.2
 // 纯逻辑：所有函数接收 state、返回新 state，不碰 DOM。随机数种子存在 state 里，存档可完整复现。
 // v0.2：夜袭按边界逐块结算（扩张会拉长防线）；建筑可以拆掉换材料；食物充足时会有人来投奔。
+// v0.11：感染。被丧尸弄伤可能是咬伤，三晚内要用急救包、送医院，否则会尸变；懂护理的人在家能拖一晚。
 // v0.10：尸巢藏起来了，要靠地盘推近、派人路过或者丧尸繁殖的线索去找；每局数量和位置更随机，中途还会冒出新巢。
 // v0.9：尸巢。丧尸只在尸巢附近繁殖，巢会长大、会往外喷丧尸，端掉一个，那一片就安静了。
 // v0.8：装备。每人一件随身物品，地图上捡、花材料打造，受伤可能掉在原地。
@@ -10,12 +11,14 @@
 // v0.3：住户有绑在地图上的牵挂（救人、取物、收回老家、别拆），有期限，达成会更卖力，放着不管会出事。
 const Sim = (() => {
   'use strict';
-  const VERSION = 9;
+  const VERSION = 10;
   const W = 8, H = 8;
   const GOAL = 30;          // 撑过第 30 夜，救援车队到达
   const FORT_MAX = 10;      // 据点工事上限
   const BAR_MAX = 4;        // 其他地块路障上限
   const INJ_DAYS = 3;       // 受伤后休养天数（结算当天就减 1，实际缺席 2 天）
+  const INF_DAYS = 3;       // 被咬后几晚会尸变
+  const BITE = 0.3;         // 被丧尸弄伤时是咬伤的机会（端巢时更高）
 
   // loot：可搜刮的 [食物, 材料]；strip：拆掉能得到的材料；beds/def/food/mat：收复后的常驻加成；cost：收复工时
   const TYPES = {
@@ -25,7 +28,7 @@ const Sim = (() => {
     park:     { name: '公园',   food: 3, cost: 3, loot: [2, 1], strip: 0, desc: '收复后改成菜园，每天 +3 食物。' },
     market:   { name: '菜市场', food: 1, cost: 4, loot: [14, 2], strip: 6, desc: '存粮多。收复后每天 +1 食物。' },
     mart:     { name: '超市',   cost: 4, loot: [18, 3], strip: 10, desc: '存粮最多的地方，也最多丧尸。货架和冷柜拆下来全是好材料。' },
-    hospital: { name: '医院',   heal: true, cost: 6, loot: [4, 4], strip: 10, desc: '收复后伤员恢复速度翻倍。' },
+    hospital: { name: '医院',   heal: true, cost: 6, loot: [4, 4], strip: 10, desc: '收复后伤员恢复速度翻倍，被咬的人住一晚就能治好。' },
     police:   { name: '派出所', def: 3, cost: 5, loot: [2, 6], strip: 9, desc: '收复后这里自带防御 +3，适合当前哨。' },
     hardware: { name: '五金行', mat: 1, cost: 4, loot: [1, 12], strip: 6, desc: '材料多。收复后每天 +1 材料。' },
     temple:   { name: '宫庙',   beds: 2, def: 1, cost: 3, loot: [5, 2], strip: 6, desc: '收复后 +2 床位，这里防御 +1。' },
@@ -70,9 +73,9 @@ const Sim = (() => {
     loud:      { name: '大嗓门', desc: '驻守时能把人吼起来：同一处每多一个守军，防御再 +1。' },
     handy:     { name: '手巧',   desc: '加固、堆路障、收复时都额外 +1。' },
     bigeater:  { name: '大胃王', desc: '战斗 +1，但每天要吃两份。' },
-    medic:     { name: '懂护理', desc: '留守据点时，所有伤员每天多恢复 1 天。' },
+    medic:     { name: '懂护理', desc: '留守据点时，所有伤员每天多恢复 1 天；被咬的人能多拖一晚。' },
     finder:    { name: '识货',   desc: '搜刮时多带回 2 份东西。' },
-    lucky:     { name: '命硬',   desc: '受伤率 -30%，而且受伤从不致命。' },
+    lucky:     { name: '命硬',   desc: '受伤率 -30%，受伤从不致命，被咬的机会减半。' },
     hothead:   { name: '冲动',   desc: '清理时多杀 1 只，但受伤率 +50%。' },
     charmer:   { name: '人缘好', desc: '搜刮住宅、国小时找到幸存者的机会翻倍；不会跟人结仇。' },
   };
@@ -124,7 +127,7 @@ const Sim = (() => {
     helmet:  { name: '安全帽', cost: 3, desc: '替戴着的人挡一次伤，然后就碎了。' },
     walkie:  { name: '对讲机', desc: '拿着的人驻守时，相邻的每块我方地盘夜间防御 +2（一块地最多 +4）。' },
     bike:    { name: '脚踏车', desc: '能去离地盘两格远的地方搜刮、救人，不用先把路打通；跑得快，搜刮、救人受伤率 -30%。' },
-    medkit:  { name: '急救包', use: true, desc: '用在伤员身上，马上就能出门。用完就没了。' },
+    medkit:  { name: '急救包', use: true, desc: '用在伤员身上，马上就能出门；也能治好咬伤。用完就没了。医院、超市、住宅里偶尔能翻到。' },
   };
 
   // 尸巢：t.nest = { lv, hp, found }。没找到的巢照样繁殖、加尸群，只是地图上看不出来。每级让每晚的尸群 +5%；丧尸只在离巢 NEST_R 格以内繁殖（尖叫者附近例外）；巢每晚往四周喷丧尸，
@@ -286,7 +289,7 @@ const Sim = (() => {
     const v = {
       id: s.nextId++, name: pick(s, pool), job: job.name,
       fight: j(job.f), scav: j(job.s), build: j(job.b),
-      inj: 0, sulk: 0, task: { k: 'defend' }, trait: pick(s, Object.keys(TRAITS)), gear: null,
+      inj: 0, inf: 0, sulk: 0, task: { k: 'defend' }, trait: pick(s, Object.keys(TRAITS)), gear: null,
     };
     if (v.trait === 'bigeater') v.fight = Math.min(5, v.fight + 1);
     return v;
@@ -587,6 +590,8 @@ const Sim = (() => {
     const injure = (v, z, t) => {
       if (gear(v, 'helmet')) { v.gear = null; L(`${v.name}头上挨了一下，安全帽碎了，人没事。`); return; }
       v.inj = INJ_DAYS;
+      const bit = !v.inf && rand(s) < (t && t.nest ? 0.5 : BITE) * (tr(v, 'lucky') ? 0.5 : 1);
+      if (bit) { v.inf = INF_DAYS; v.infHeld = false; }
       const drop = v.gear && t && !isBase(t) && rand(s) < 0.4 ? v.gear : null;   // 在据点里受伤，东西就留在据点
       if (drop) { v.gear = null; t.gear.push(drop); }
       const lost = drop ? `${GEAR[drop].name}掉在了${tname(t)}。` : '';
@@ -594,7 +599,7 @@ const Sim = (() => {
         if (v.gear) { (t && !isBase(t) ? t.gear : s.stash).push(v.gear); v.gear = null; }
         die(v, `${v.name}没能回来。` + lost); return;
       }
-      L(`${v.name}受了伤，要休养几天。` + lost, 'bad');
+      L(bit ? `${v.name}被咬了！${INF_DAYS} 晚之内要用急救包或送医院，不然会尸变。` + lost : `${v.name}受了伤，要休养几天。` + lost, 'bad');
     };
     // 进了这块地，地上的装备就带回来
     const takeGear = (t, who) => {
@@ -724,6 +729,8 @@ const Sim = (() => {
           }
         }
         s.food += gf; s.mat += gm;
+        const kitP = { hospital: 0.25, mart: 0.12, house: 0.05 }[t.t] || 0;   // 药柜、货架、别人家的抽屉
+        if (gf + gm > 0 && !t.gutted && rand(s) < kitP) { s.stash.push('medkit'); L(`${who}在${nm}翻到一个急救包。`, 'good'); }
         if (g.some(v => !v.dead && v.inj === 0)) takeGear(t, who);
         if (t.drop) { t.drop = false; L(`${who}在${nm}找到了空投箱。`, 'good'); }
         L(`${who}从${nm}搜回 ${gf} 食物、${gm} 材料。` + (t.food + t.mat === 0 ? '这里搜空了。' : ''));
@@ -836,6 +843,14 @@ const Sim = (() => {
     for (const v of s.surv) {
       if (v.inj > 0) { v.inj = Math.max(0, v.inj - heal); if (v.inj === 0) v.task = { k: 'defend' }; }
       if (v.sulk > 0) v.sulk--;
+    }
+    // 感染（v.inf 是还剩几晚，-1 表示今天早上就要尸变）：医院治好；懂护理的人在家（不是被咬的本人）就拖一晚；否则倒数，到 0 第二天早上要做决定
+    for (const v of s.surv.filter(v => v.inf > 0)) {
+      if (hasHospital(s)) { v.inf = 0; L(`${v.name}在医院打了针，伤口不再发黑。咬伤治好了。`, 'good'); continue; }
+      if (!v.infHeld && s.surv.some(u => u.id !== v.id && tr(u, 'medic') && ready(u) && u.task.k === 'defend' && u.task.x == null)) { v.infHeld = true; L(`${s.surv.find(u => u.id !== v.id && tr(u, 'medic')).name}守着${v.name}清了一夜伤口，感染没有恶化，但只能拖这一晚。`); continue; }
+      v.inf--;
+      if (v.inf === 0) { v.inf = -1; s.queue.push({ day: s.day + 1, id: 'turn', p: { id: v.id } }); }   // -1：今天早上就要尸变
+      else L(`${v.name}的咬伤在发黑，还剩 ${v.inf} 晚。`, 'bad');
     }
 
     // 牵挂到期
@@ -1061,8 +1076,20 @@ const Sim = (() => {
       return {
         text: `${v.name}的伤口发黑了，烧得说胡话，看人的眼神也不对了。`,
         choices: [
-          { label: '趁现在送他走', note: '大家会难过，但不会有别人受伤', ok: true },
+          { label: '趁现在送走', note: '大家会难过，但不会有别人受伤', ok: true },
           { label: '绑起来，再赌一晚', note: '一半机会熬过来；熬不过去的话，会有人被咬伤', ok: true },
+        ],
+      };
+    },
+    // ---- 咬伤到期：送走，或者绑起来赌一晚
+    turn: (s, p) => {
+      const v = byId(s, p.id);
+      return {
+        text: `${v.name}烧得认不出人了，被咬的地方整片发黑。撑不过今晚了。`,
+        choices: [
+          { label: '趁现在送走', note: '大家会难过，但不会有别人受伤', ok: true },
+          { label: '绑起来，再赌一晚', note: '三成机会熬过来；熬不过去，会有人被咬', ok: true },
+          { label: '用急救包', note: s.stash.includes('medkit') ? '最后的机会，还来得及' : '仓库里没有急救包', ok: s.stash.includes('medkit') },
         ],
       };
     },
@@ -1151,6 +1178,7 @@ const Sim = (() => {
         if (!q.p.bit) { s.log.push({ d: s.day, tone: 'good', msg: `${v.name}退烧了，只是着凉。` }); continue; }
       }
       if (q.id === 'camp_revenge' && !(s.camp && s.camp.state === 'hostile')) continue;
+      if (q.id === 'turn') { const v = byId(s, q.p.id); if (!v || v.inf !== -1) continue; }   // 人不在了，或者已经治好了
       s.event = { id: q.id, p: q.p };
       return;
     }
@@ -1268,7 +1296,11 @@ const Sim = (() => {
       campLeave(s, 2, `之后再也没见过${campName(s)}那伙人。`);
     } else if (id === 'fever') {
       const v = byId(s, p.id), m = medicFor(s, p.id);
-      if (i === 0) { v.inj = INJ_DAYS; L(`${v.name}被关进储藏室隔离。`); }
+      if (i === 0) {
+        v.inj = INJ_DAYS;
+        if (p.bit) { v.inf = INF_DAYS; v.infHeld = false; L(`${v.name}被关进储藏室隔离。第二天大家看清了：手臂上是牙印。${INF_DAYS} 晚之内要用急救包或送医院。`, 'bad'); }
+        else L(`${v.name}被关进储藏室隔离。`);
+      }
       else if (i === 1) {
         if (p.bit) { v.inj = INJ_DAYS; L(`${m.name}一眼认出是咬伤，赶紧清创、隔离。${v.name}得躺几天，但应该能熬过去。`, 'good'); }
         else L(`${m.name}看了看：只是着凉，伤口是铁皮划的。${v.name}照常干活。`, 'good');
@@ -1282,8 +1314,20 @@ const Sim = (() => {
         const g = s.surv.filter(ready);
         const u = g.length ? pick(s, g) : null;
         if (u) u.inj = INJ_DAYS;
-        L(`半夜储藏室里传出撞门声。${v.name}已经不是${v.name}了。${u ? `${u.name}在制住他的时候被咬伤了。` : ''}`, 'bad');
+        L(`半夜储藏室里传出撞门声。${v.name}已经不是${v.name}了。${u ? `${u.name}在制住${v.name}的时候被咬伤了。` : ''}`, 'bad');
       } else { v.inj = INJ_DAYS; L(`${v.name}烧了一整夜，天亮时退烧了。没人知道是怎么熬过来的。`, 'good'); }
+    } else if (id === 'turn') {
+      const v = byId(s, p.id);
+      const kill = () => { if (v.gear) s.stash.push(v.gear); s.surv = s.surv.filter(u => u.id !== v.id); s.gone.push(v.name); s.stats.lost++; s.stats.turned = (s.stats.turned || 0) + 1; };
+      if (i === 0) { kill(); L(`你们在顶楼送走了${v.name}。那天晚上没人说话。`, 'bad'); }
+      else if (i === 2) { s.stash.splice(s.stash.indexOf('medkit'), 1); v.inf = 0; v.inj = Math.max(v.inj, 1); L(`最后一个急救包打了进去。中午${v.name}退烧了，还得躺一天。`, 'good'); }
+      else if (rand(s) < 0.3) { v.inf = 0; v.inj = INJ_DAYS; L(`${v.name}烧了一整夜，天亮时退烧了。没人知道是怎么熬过来的。`, 'good'); }
+      else {
+        kill();
+        const g = s.surv.filter(ready), u = g.length ? pick(s, g) : null;
+        if (u) { u.inj = INJ_DAYS; if (!u.inf && rand(s) < 0.5) { u.inf = INF_DAYS; u.infHeld = false; } }
+        L(`半夜储藏室里传出撞门声。${v.name}已经不是${v.name}了。${u ? `${u.name}在制住${v.name}的时候${u.inf ? '被咬了' : '受了伤'}。` : ''}`, 'bad');
+      }
     } else if (id === 'sos') {
       if (i < 2) {
         s.sos = { x: p.x, y: p.y, n: i === 0 ? p.n : p.n - 1, until: s.day + 4, promised: i === 0 };
@@ -1373,9 +1417,11 @@ const Sim = (() => {
   // 急救包：伤员马上能出门
   function useMedkit(s0, id) {
     const s = clone(s0), v = byId(s, id), i = s.stash.indexOf('medkit');
-    if (!v || i < 0 || v.inj <= 0 || s.over) return s0;
-    s.stash.splice(i, 1); v.inj = 0; v.task = { k: 'defend' };
-    s.log.push({ d: s.day, tone: 'good', msg: `用掉一个急救包，${v.name}包扎好了，可以出门。` });
+    if (!v || i < 0 || (v.inj <= 0 && !v.inf) || s.over) return s0;
+    s.stash.splice(i, 1);
+    const bit = !!v.inf;
+    v.inj = 0; v.inf = 0; v.task = { k: 'defend' };
+    s.log.push({ d: s.day, tone: 'good', msg: bit ? `用掉一个急救包，清创、打针，${v.name}的咬伤治好了。` : `用掉一个急救包，${v.name}包扎好了，可以出门。` });
     return s;
   }
 
@@ -1407,6 +1453,7 @@ const Sim = (() => {
       for (const t of s.tiles) t.nest = t.nest || null;
       if (!s.over && !s.tiles.some(t => t.nest)) placeNests(s, 2);
     }
+    if (s.v < 10) for (const v of s.surv) if (v.inf == null) v.inf = 0;   // v9 → v10：感染
     if (s.v < 9) { // v8 → v9：尸巢要找。旧存档里的巢本来就看得到，算已经找到；不再补新巢
       for (const t of s.tiles) if (t.nest) { if (t.nest.found === undefined) t.nest.found = true; if (t.nest.born == null) t.nest.born = 1; }
       if (s.nestDay === undefined) s.nestDay = null;
@@ -1416,7 +1463,7 @@ const Sim = (() => {
   }
 
   return {
-    VERSION, W, H, GOAL, NEST_R, NEST_HORDE, HORDE_BASE, nestHp, nestLv, nestZ, nestHint, FORT_MAX, BAR_MAX, TYPES, TRAITS, RULES, CITIES, ORIGINS, GEAR, equip, useMedkit, bikeReach, nestReach, canGo, craftCost, barMax, foodUse, has, surgeEvery, surgeIn,
+    VERSION, W, H, GOAL, INF_DAYS, NEST_R, NEST_HORDE, HORDE_BASE, nestHp, nestLv, nestZ, nestHint, FORT_MAX, BAR_MAX, TYPES, TRAITS, RULES, CITIES, ORIGINS, GEAR, equip, useMedkit, bikeReach, nestReach, canGo, craftCost, barMax, foodUse, has, surgeEvery, surgeIn,
     newGame, endDay, setTask, canDo, preview, resolveEvent, eventView,
     nightPlan, tileDefense, horde, beds, income, owned, tile, reachable, frontier, byId, ready, score, eff, tname,
     arrivalChance, serialize, deserialize, SKILL,

@@ -18,7 +18,7 @@ for (let i = 0; i < 400; i++) {
       const k = s.stash.find(k => !Sim.GEAR[k].use);
       if (k && (v.id + s.day) % 3 === 0) s = Sim.equip(s, v.id, k);
       else if (v.gear && (v.id + s.day) % 11 === 0) s = Sim.equip(s, v.id, null);
-      if (v.inj > 0 && s.stash.includes('medkit')) { s = Sim.useMedkit(s, v.id); gearOps.medkit++; }
+      if ((v.inj > 0 || v.inf) && s.stash.includes('medkit') && (v.id + s.day) % 2) { s = Sim.useMedkit(s, v.id); gearOps.medkit++; }
     }
     // 随机给几个人派活，覆盖各种任务分支
     for (const v of s.surv) {
@@ -36,7 +36,7 @@ for (let i = 0; i < 400; i++) {
     }
     const n0 = s.log.length;
     s = Sim.endDay(s);
-    for (const l of s.log.slice(n0)) for (const [k, re] of [['打造', /做出一件/], ['捡到', /找到了.*放进了仓库/], ['帽碎', /安全帽碎了/], ['掉落', /掉在了/], ['骑车', /骑车/], ['砍巢', /砍了尸巢/], ['端巢', /烧了尸巢/], ['巢长大', /尸巢又大了一圈|尸巢又长大了/], ['发现巢', /发现了一个尸巢/], ['新巢', /新的尸巢/]]) if (re.test(l.msg)) gearOps[k] = (gearOps[k] || 0) + 1;
+    for (const l of s.log.slice(n0)) for (const [k, re] of [['打造', /做出一件/], ['捡到', /找到了.*放进了仓库/], ['帽碎', /安全帽碎了/], ['掉落', /掉在了/], ['骑车', /骑车/], ['砍巢', /砍了尸巢/], ['端巢', /烧了尸巢/], ['巢长大', /尸巢又大了一圈|尸巢又长大了/], ['发现巢', /发现了一个尸巢/], ['新巢', /新的尸巢/], ['被咬', /被咬了！/], ['尸变', /已经不是/], ['治咬伤', /咬伤治好了/], ['翻到药', /翻到一个急救包/]]) if (re.test(l.msg)) gearOps[k] = (gearOps[k] || 0) + 1;
     s = Sim.deserialize(Sim.serialize(s));
   }
   days += s.day;
