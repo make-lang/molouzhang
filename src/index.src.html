@@ -180,6 +180,14 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
 .card span.d { color: var(--ink); }
 .ln-堡垒 { color: #74a6dc; } .ln-拆迁 { color: #c88a3e; } .ln-大家庭 { color: var(--kin); } .ln-远征 { color: var(--good); } .ln-通用 { color: var(--dim); } .ln-城况 { color: #e2654b; } .ln-季节 { color: #74a6dc; } .ln-开局温和 { color: var(--good); } .ln-开局一般 { color: #74a6dc; } .ln-开局较难 { color: var(--amber); } .ln-开局最难 { color: var(--red); } .ln-出身 { color: #d6b98a; }
 .rules { display: flex; flex-direction: column; gap: 4px; }
+#dlg.wide { width: 880px; max-height: 516px; gap: 8px; }
+.laws { display: flex; flex-direction: column; gap: 6px; max-height: 330px; padding-right: 4px; }
+.lawp { display: grid; grid-template-columns: 52px 1fr 1fr; gap: 6px; align-items: stretch; }
+.lawp > .pn { color: var(--dim); padding-top: 4px; }
+.law { border: 1px solid var(--edge); padding: 4px 6px; display: flex; flex-direction: column; gap: 2px; }
+.law.on { border-color: var(--amber); } .law.off { opacity: .6; } .law.pick { border-color: #74a6dc; }
+.law .row2 { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+.law .btn { padding: 0 6px; }
 #dlg ol { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 6px; }
 .big { font-size: 24px; line-height: 26px; color: var(--amber); }
 #fade { position: absolute; inset: 0; background: #02030a; opacity: 0; pointer-events: none; z-index: 9; }
@@ -932,9 +940,9 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
       ${S.brute ? `<span class="res c-red" title="今晚的尸群里有巨汉：街区路障只算一半，被撞时损耗翻倍，铁门受损更重">${ic('fist', '巨汉')}今晚巨汉</span>` : ''}
       <span class="res ${surge === 0 ? 'c-red' : ''}">${ic('skull', '尸潮')}${surge === 0 ? '今晚尸潮' : `尸潮${surge}天`}</span>
       ${S.rescueDay ? `<span class="res c-good" title="守住电台和降落点">${ic('heli', '救援')}直升机${S.rescueDay - S.day}天</span>` : ''}
-      <span class="menu"><button class="btn" id="b-rules">楼规${S.rules.length}</button><button class="btn" id="b-help">说明</button><button class="btn" id="b-save">存档</button><button class="btn" id="b-new">新局</button></span>`;
+      <span class="menu"><button class="btn${S.lawSlot ? ' primary' : ''}" id="b-rules" title="${S.lawSlot ? `有 ${S.lawSlot} 次签字的机会：可以签一条律法，或者废掉一条` : '律法和这局的开局情况'}">律法${S.laws.length}${S.lawSlot ? '!' : ''}</button><button class="btn" id="b-help">说明</button><button class="btn" id="b-save">存档</button><button class="btn" id="b-new">新局</button></span>`;
     $('b-help').onclick = () => { mode = 'help'; renderOverlay(); };
-    $('b-rules').onclick = () => { mode = 'rules'; renderOverlay(); };
+    $('b-rules').onclick = () => { mode = 'rules'; lawPick = null; renderOverlay(); };
     $('b-save').onclick = () => { mode = 'save'; renderOverlay(); };
     $('b-new').onclick = () => { mode = 'new'; renderOverlay(); };
   }
@@ -968,7 +976,8 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     const rows = moodWhy(v).slice(0, 4).map(([t, w, d], i) => `<span class="${w > 0 ? 'c-good' : 'c-red'}">${(w > 0 ? '+' : '-').repeat(Math.abs(w) >= 10 ? 2 : 1)}</span> ${t}${d ? `<span class="dim">（第 ${d} 天）</span>` : ''}`);
     const [nm, trend] = moodName(v);
     const can = Sim.canChat(S, v.id);
-    return `<div class="box ${lv <= 1 ? 'fail' : lv === 3 ? 'safe' : ''}"><div class="row2"><span class="${['c-red', 'c-amber', '', 'c-good'][lv]}">${v.name} · ${nm}</span><button class="btn" data-chat="${v.id}" ${can ? '' : 'disabled'} title="${can ? '楼长每天能找一个人聊一次，不占人手' : '今天已经找人聊过了'}">找他聊聊</button></div>${trend || eff ? `<span class="dim">${[trend, eff].filter(Boolean).join('。')}</span><br>` : ''}${rows.length ? rows.join('<br>') : '<span class="dim">心里没什么事。</span>'}</div>`;
+    const st = (v.st || []).map(k => `<span title="${Sim.STANCES[k].desc}">${Sim.STANCES[k].name}</span>`).join('、');
+    return `<div class="box ${lv <= 1 ? 'fail' : lv === 3 ? 'safe' : ''}"><div class="row2"><span class="${['c-red', 'c-amber', '', 'c-good'][lv]}">${v.name} · ${nm}</span><button class="btn" data-chat="${v.id}" ${can ? '' : 'disabled'} title="${can ? '楼长每天能找一个人聊一次，不占人手' : '今天已经找人聊过了'}">找他聊聊</button></div>${trend || eff ? `<span class="dim">${[trend, eff].filter(Boolean).join('。')}</span><br>` : ''}${st ? `<span class="dim">在意：${st}</span><br>` : ''}${rows.length ? rows.join('<br>') : '<span class="dim">心里没什么事。</span>'}</div>`;
   }
 
   function renderPeople() {
@@ -1347,8 +1356,40 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
   }
 
   // ---------- 对话框 ----------
-  function dlg(html, bind) { $('dlg').innerHTML = html; $('ov').hidden = false; bind && bind(); const b = $('dlg').querySelector('button:not([disabled])'); if (b) b.focus({ preventScroll: true }); }
+  function dlg(html, bind, wide) { $('dlg').innerHTML = html; $('dlg').classList.toggle('wide', !!wide); $('ov').hidden = false; bind && bind(); const b = $('dlg').querySelector('button:not([disabled])'); if (b) b.focus({ preventScroll: true }); }
   function closeDlg() { mode = null; render(); }
+
+  // 律法：成对排列，标出生效的、签不了的，每条列出现在谁赞成、谁反对；点“签下/废除”先确认
+  let lawPick = null;
+  const lawWho = (k, side) => S.surv.filter(v => Sim.lawSide(v, k) === side).map(v => v.name).join('、');
+  function lawsHtml() {
+    const slot = S.lawSlot || 0, flip = S.flip || 0;
+    const head = [S.season ? `<span class="ln ln-季节 chip">季节</span> <span class="c-amber" title="${Sim.SEASONS[S.season].desc}">${Sim.SEASONS[S.season].name}</span>` : '',
+      S.city ? `<span class="ln ln-城况 chip">城况</span> <span class="c-amber" title="${Sim.CITIES[S.city].desc}">${Sim.CITIES[S.city].name}</span>` : '',
+      S.origin ? `<span class="ln ln-出身 chip">出身</span> <span class="c-amber" title="${Sim.ORIGINS[S.origin].desc}">${Sim.ORIGINS[S.origin].name}</span>` : ''].filter(Boolean).join('　');
+    const cell = k => {
+      const L = Sim.LAWS[k], on = Sim.law(S, k), y = lawWho(k, 1), n = lawWho(k, -1);
+      const blocked = !on && S.laws.some(o => Sim.LAWS[o].pair === L.pair);
+      const act = on ? `<button class="btn" data-law="${k}" ${Sim.canRepeal(S, k) ? '' : 'disabled'} title="废除会用掉一次签字机会；当初赞成的人会觉得你说话不算数">废除</button>`
+        : `<button class="btn" data-law="${k}" ${Sim.canSign(S, k) ? '' : 'disabled'} title="${blocked ? '对面那条正在生效，要先废掉它' : slot ? '' : '换季的第一天才有签字的机会'}">签下</button>`;
+      return `<div class="law${on ? ' on' : ''}${blocked ? ' off' : ''}${lawPick === k ? ' pick' : ''}"><div class="row2"><span class="c-amber">${L.name}${on ? ' <span class="chip">生效中</span>' : ''}</span>${act}</div>
+        <span class="dim">${L.desc}</span>
+        <span><span class="c-good">赞成</span> ${y || '<span class="dim">没人</span>'}　<span class="c-red">反对</span> ${n || '<span class="dim">没人</span>'}</span></div>`;
+    };
+    const pairs = Sim.LAW_PAIRS.map(p => { const ks = Object.keys(Sim.LAWS).filter(k => Sim.LAWS[k].pair === p); return `<div class="lawp"><span class="pn">${p}</span>${ks.map(cell).join('')}</div>`; }).join('');
+    let confirm = '';
+    if (lawPick) {
+      const L = Sim.LAWS[lawPick], on = Sim.law(S, lawPick), y = lawWho(lawPick, 1), n = lawWho(lawPick, -1);
+      confirm = on ? `<p>废掉「${L.name}」？${y ? `<span class="c-red">${y}</span>会觉得你说话不算数，` : ''}其他人也会记一笔。以后每签一条律法，反对的人都会更不服。</p>`
+        : `<p>签下「${L.name}」？${y ? `<span class="c-good">${y}</span>会高兴。` : ''}${n ? `<span class="c-red">${n}</span>会不满${flip ? `（你改过 ${flip} 次口，他们会更不服）` : ''}。` : ''}${!y && !n ? '眼下没人有意见。' : ''}</p>`;
+      confirm += `<div class="row"><button class="btn primary" id="d-yes">${on ? '废除' : '签下'}</button><button class="btn" id="d-back">再想想</button></div>`;
+    }
+    return `<h2>律法</h2>
+      <p class="dim">${head}</p>
+      <p>${slot ? `<span class="c-amber">有 ${slot} 次签字的机会。</span>可以签一条律法，或者废掉一条。` : `<span class="dim">每次换季的第一天，大家会聚在顶楼等你签一条律法或废掉一条${S.city === 'moon' ? '；撑过尸潮也会' : ''}。</span>`}${flip ? ` <span class="c-red">已经改过 ${flip} 次口。</span>` : ''}</p>
+      <div class="laws scroll">${pairs}</div>
+      ${confirm || '<div class="row"><button class="btn primary" id="d-ok">关闭</button></div>'}${confirm ? '<button class="btn" id="d-ok" hidden></button>' : ''}`;
+  }
 
   function renderOverlay() {
     if (mode === 'report' && report) {
@@ -1375,7 +1416,8 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
         <li>菜园要种子：青菜长在初春、春末、深秋，番薯从春末种到秋老虎，丝瓜盛夏收得最多，萝卜是冬天唯一种得活的。作物过季就枯了，会自动用仓库里的种子换种这一季最好的，种下后一两天才开始收。种子在菜市场、公园、五金行最容易翻到，收成时偶尔也能留下一包；饿急了可以把种子煮来吃，但明年就没得种了。</li>
         <li>没有时间限制。地图上的物资搜光就没了，长久下去要靠菜园：自己地盘里的楼都能开垦，废墟和拆过的楼能种一整片。尸群到一定程度就不会再涨，但尸巢会一个个醒过来。怎么样才算熬出头，要你自己去找。</li>
         <li>存粮够、还有空床，会有人来投奔。通常每 7 天一次尸潮。</li>
-        <li>每个住户都有一个特质（名字旁边的字），鼠标停在卡片上能看说明。每次换季的第一天，从三张楼规里选一张，效果持续到这局结束；不同的楼规会把你推向不同的打法。</li>
+        <li>每个住户都有一个特质（名字旁边的字），鼠标停在卡片上能看说明。</li>
+        <li>律法（顶栏的“律法”按钮）：七对，每对只能签一条。每次换季的第一天大家会聚在顶楼，你可以签一条或者废掉一条。每人有两样在意的东西（人情、规矩、公平……，点开住户能看到），签下去赞成的人高兴、反对的人记恨。律法可以废，但当初赞成的人会觉得你说话不算数，而且废得越多，以后签什么都越难服众。</li>
         <li>地图上张着嘴、带红色声波的是尖叫者：它让周围丧尸长得更快，还会把夜袭引过来，清空那一格就能解决它。第 10 天以后，有些夜里会来巨汉，白天就会预告；那晚街区路障只算一半。</li>
         <li>尸巢藏在街区里，每局 1–3 个，中途还会冒出新的。丧尸只在巢附近繁殖，巢每晚往四周喷丧尸，每一级还让夜里的尸群多 5%，出现后每 10 天长大一级。地块面板写着“丧尸会自己繁殖”，附近三格内就有巢；地盘推到两格以内，或者有人在巢旁边干活，就能找到它（地图上暗红色、会鼓动的肉堆）。找到后离地盘两格以内就能派人直接去端，最好几个人同一天一起上；端掉的巢里常有前人留下的装备。</li>
         <li>被丧尸弄伤有时是咬伤，住户卡上会写“被咬 · 还剩几晚”。到期前用急救包、或者收复医院就能治好；懂护理的人留守据点能多拖一晚。拖到最后，就得决定送他走，还是绑起来赌一把。急救包除了开局那几个，搜刮医院、超市、住宅时偶尔也能翻到。</li>
@@ -1406,12 +1448,15 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
         $('d-file').onchange = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => tryLoad(String(r.result)); r.readAsText(f); };
         $('d-close').onclick = closeDlg;
       });
-    if (mode === 'rules') return dlg(`<h2>楼规</h2>
-      <div class="rules scroll" style="max-height:360px">${S.season ? `<div><span class="ln ln-季节 chip">季节</span> <span class="c-amber">${Sim.SEASONS[S.season].name}</span> <span class="dim">${Sim.SEASONS[S.season].desc}（这局从${Sim.SEASONS[S.start].name}开始）</span></div>` : ''}${S.city ? `<div><span class="ln ln-城况 chip">城况</span> <span class="c-amber">${Sim.CITIES[S.city].name}</span> <span class="dim">${Sim.CITIES[S.city].desc}</span></div>` : ''}${S.origin ? `<div><span class="ln ln-出身 chip">出身</span> <span class="c-amber">${Sim.ORIGINS[S.origin].name}</span> <span class="dim">${Sim.ORIGINS[S.origin].desc}</span></div>` : ''}${S.rules.length ? S.rules.map(k => { const r = Sim.RULES[k]; return `<div><span class="ln ln-${r.line} chip">${r.line}</span> <span class="c-amber">${r.name}</span> <span class="dim">${r.desc}</span></div>`; }).join('') : `<p class="dim">还没有楼规。每次换季（每 ${Sim.SEASON_LEN} 天一次）的第一天，会从三张里选一张。</p>`}</div>
-      <div class="row"><button class="btn primary" id="d-ok">关闭</button></div>`, () => { $('d-ok').onclick = closeDlg; });
+    if (mode === 'rules') return dlg(lawsHtml(), () => {
+      $('dlg').querySelectorAll('[data-law]').forEach(b => b.onclick = () => { lawPick = b.dataset.law; renderOverlay(); });
+      if ($('d-yes')) $('d-yes').onclick = () => { const k = lawPick; lawPick = null; commit(Sim.law(S, k) ? Sim.repealLaw(S, k) : Sim.signLaw(S, k)); mode = 'rules'; renderOverlay(); };
+      if ($('d-back')) $('d-back').onclick = () => { lawPick = null; renderOverlay(); };
+      $('d-ok').onclick = closeDlg;
+    }, true);
     if (S.event && Sim.eventView(S).draft) {
       const ev = Sim.eventView(S);
-      return dlg(`<h2>${ic('sun')}${ev.title || '定一条楼规'}</h2><p class="dim">${ev.text}</p>
+      return dlg(`<h2>${ic('sun')}${ev.title}</h2><p class="dim">${ev.text}</p>
         <div class="cards${ev.choices.length > 3 ? ' four' : ''}">${ev.choices.map((c, i) => `<button class="btn card" data-c="${i}" ${c.ok === false ? 'disabled' : ''}><span class="ln ln-${c.line}">${c.line}</span>${SEASON_IC[c.key] ? ic(SEASON_IC[c.key]) : ''}<b>${c.label}</b><span class="d">${c.note}</span></button>`).join('')}</div>`,
         () => $('dlg').querySelectorAll('[data-c]').forEach(b => b.onclick = () => commit(Sim.resolveEvent(S, +b.dataset.c))));
     }

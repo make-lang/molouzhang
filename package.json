@@ -7,7 +7,7 @@
     "build": "python3 build.py",
     "smoke": "node tools/smoke.js",
     "balance": "node tools/balance.js 400",
-    "cards": "node tools/cards.js 300",
+    "laws": "node tools/laws.js",
     "gear": "node tools/gear.js 600",
     "ablate": "node tools/ablate.js all && node tools/ablate.js nobrute && node tools/ablate.js noscream",
     "trace": "node tools/trace.js"

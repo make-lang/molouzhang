@@ -3,6 +3,9 @@ const Sim = require('../src/sim.js');
 // 会规划的研究顺序：先挑立刻见效的（收成、伤员、咬伤、加固），再往深处走；没列到的排在最后
 const PLAN_ORDER = ['compost', 'stretcher', 'herb', 'clean', 'carpentry', 'diet', 'breed', 'clouds', 'armor', 'gate', 'irrigate', 'survey', 'dismantle', 'hothouse', 'tactics', 'smelt', 'cure', 'cellar', 'bunker', 'pickle', 'radioset', 'shock'];
 for (const k of Object.keys(Sim.TECHS)) if (!PLAN_ORDER.includes(k)) PLAN_ORDER.push(k);
+// 律法：有签字机会就按顺序签第一条签得了的（opt.laws 指定就只签这几条，tools/laws.js 用）
+const PLAN_LAWS = ['patrol', 'ration', 'quarantine', 'promise', 'vet', 'burial', 'overtime'];
+const GREEDY_LAWS = ['patrol', 'open', 'merit', 'exile', 'overtime', 'confiscate', 'selfish'];
 const { TYPES } = Sim;
 
 // 装备：急救包先救被咬的人，再给最能打的伤员（留一个备着防咬伤）；仓库里的东西按用处发给最合适的人
@@ -42,7 +45,7 @@ function farmOn(s, day) {
   const best = Math.max(0, ...Object.keys(Sim.CROPS).filter(k => (s.seeds[k] || 0) > 0).map(k => Sim.cropK(k, se)));
   let f = Sim.income(s, 0).food;   // 菜市场这类不看季节的
   for (const t of Sim.plots(s)) f += Sim.farmYield(t) * (t.crop && Sim.cropK(t.crop.k, se) > 0 ? Sim.cropK(t.crop.k, se) : best);   // 不算发芽的天数：算进去脚本会太保守、不敢收人
-  if (Sim.has(s, 'rooftop')) f += 2 * Sim.cropK('greens', se);
+  if (Sim.tech(s, 'rooftop')) f += 2 * Sim.cropK('greens', se);
   return f;
 }
 // 粮食展望（opt.plan）：按接下来 18 天每天的收成算，存粮最低会掉到多少（冬天吃得多）。extra 是假设多几张嘴
@@ -96,7 +99,7 @@ function policy(s, opt) {
   const fronts = plan.fronts.map(f => ({ ...f, need: target(f) - f.def.bar - f.def.place }))
     .sort((a, b) => (b.base - a.base) || (b.need - a.need));
   // 会规划的脚本知道加固在夜袭之前结算：会盖的人去加固，今晚就多 1–2 点，而且是永久的
-  const fortGain = v => 1 + (v.build >= 4 ? 1 : 0) + (v.trait === 'handy' ? 1 : 0) + (Sim.has(s, 'sandbag') ? 1 : 0);
+  const fortGain = v => 1 + (v.build >= 4 ? 1 : 0) + (v.trait === 'handy' ? 1 : 0) + (Sim.tech(s, 'carpentry') ? 1 : 0);
   // 寒流夜要烧木料取暖，先留出来。据点焊铁窗要木料加废铁，街区堆路障要木料
   const res = { mat: s.mat - (opt.plan && plan.wx === 'cold' ? Math.ceil(s.surv.length / 2) : 0), iron: s.iron, chem: s.chem };
   const fcost = base => base ? Sim.COST.base : Sim.COST.bar;
@@ -290,11 +293,7 @@ function run(seed, opt) {
   while (!s.over && s.day <= (opt.maxDays ?? 250) && guard++ < 5000) {
     if (s.event) {
       const view = Sim.eventView(s);
-      if (view.draft) {
-        let i = view.choices.findIndex(c => c.key === opt.card);
-        if (i < 0) i = opt.avoid ? view.choices.findIndex(c => c.key !== opt.avoid) : 0;
-        s = Sim.resolveEvent(s, Math.max(0, i)); continue;
-      }
+      if (view.draft) { s = Sim.resolveEvent(s, 0); continue; }
       let i = view.choices.findIndex(c => c.ok && !/赌气/.test(c.note));
       if (s.event.id === 'turn') i = view.choices[2].ok ? 2 : 0;   // 有急救包就救，没有就送走
       if (s.event.id === 'knock' && s.food / (s.surv.length + (s.event.p.n || 2)) < (opt.knockRatio ?? 4)) i = 2;
@@ -307,6 +306,7 @@ function run(seed, opt) {
       s = Sim.resolveEvent(s, i >= 0 ? i : view.choices.findIndex(c => c.ok));
       continue;
     }
+    if (s.lawSlot && !opt.noLaw) { const k = (opt.laws || (opt.plan ? PLAN_LAWS : GREEDY_LAWS)).find(k => Sim.canSign(s, k)); if (k) s = Sim.signLaw(s, k); }
     if (opt.probe) opt.probe(s);
     s = Sim.endDay(policy(s, opt));
     if (s.day === 21) food20 = s.food;
@@ -324,6 +324,8 @@ if (require.main === module) {
     ['先打巢', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', detail: true }],
     ['会规划', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', plan: true }],
     ['不造工事', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', plan: true, noWorks: true }],
+    ['不签律法', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', plan: true, noLaw: true }],
+    ['先打巢不签律法', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', noLaw: true }],
     ['不管人心', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', plan: true, noMood: true }],
     ['不研究', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', plan: true, noTech: true }],
     ['先打巢不研究', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', noTech: true }],

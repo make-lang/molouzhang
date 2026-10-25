@@ -7,6 +7,7 @@ const first = s => Sim.resolveEvent(s, Math.max(0, Sim.eventView(s).choices.find
 for (let i = 0; i < 400; i++) {
   let s = Sim.newGame(i, i % 8 === 7 ? { size: i % 3 ? 'small' : 'big' } : { season: Sim.SEASON_ORDER[i % 7], size: i % 3 ? 'small' : 'big' }), n = 0;   // 开局季节轮流，每 8 局有一局从选季节开始；每 3 局一局大街区
   if (i % 5 === 4) { while (s.event) s = first(s); for (const k of Object.keys(Sim.TECHS)) s.tech.done[k] = true; }   // 每 5 局有一局开局就全学会，覆盖各项科技的效果
+  if (i % 6 === 5) { while (s.event) s = first(s); s.laws = Sim.LAW_PAIRS.map(p => Object.keys(Sim.LAWS).filter(k => Sim.LAWS[k].pair === p)[i % 12 < 6 ? 0 : 1]); }   // 每 6 局有一局开局每对签好一条，覆盖律法的效果
   while (!s.over && s.day < 200) {
     if (s.event) {
       // 前 200 局选第一个能选的，后 200 局轮流选不同的选项，覆盖事件链的各个分支
@@ -26,7 +27,8 @@ for (let i = 0; i < 400; i++) {
     if (!s.tech.cur) { const k = Object.keys(Sim.TECHS).find(k => Sim.techOpen(s, k)); if (k) s = Sim.setResearch(s, k); }
     if (s.day % 10 === 5) s = Sim.setGen(s, !s.gen);
     if (s.day % 8 === 3) s = Sim.setParty(s, true);
-    if (s.surv.length) s = Sim.chat(s, s.surv[(s.day + i) % s.surv.length].id);   // 楼长每天找一个人聊   // 发电机时开时关
+    if (s.surv.length) s = Sim.chat(s, s.surv[(s.day + i) % s.surv.length].id);
+    if (s.lawSlot) { const ks = Object.keys(Sim.LAWS), k = ks[(s.day + i) % ks.length]; const c = Sim.canSign(s, k); s = c ? Sim.signLaw(s, k) : Sim.repealLaw(s, k); gearOps[c ? '签律法' : '废律法'] = (gearOps[c ? '签律法' : '废律法'] || 0) + 1; }   // 有签字机会就签一条，签不了（对面那条在生效）就试着废掉   // 楼长每天找一个人聊   // 发电机时开时关
     // 随机给几个人派活，覆盖各种任务分支
     for (const v of s.surv) {
       if ((v.id + s.day) % 7 === 3) { s = Sim.setTask(s, v.id, { k: 'study' }); continue; }
@@ -61,7 +63,7 @@ for (let i = 0; i < 400; i++) {
     if (Sim.forecast(s) && Sim.forecast(s).flood) wxSeen['淹水'] = (wxSeen['淹水'] || 0) + 1;
     const n0 = s.log.length;
     s = Sim.endDay(s);
-    for (const l of s.log.slice(n0)) for (const [k, re] of [['打造', /做出一件/], ['捡到', /找到了.*放进了仓库/], ['帽碎', /安全帽碎了/], ['掉落', /掉在了/], ['骑车', /骑车/], ['砍巢', /砍了尸巢/], ['端巢', /烧了尸巢/], ['巢长大', /尸巢又大了一圈|尸巢又长大了/], ['发现巢', /发现了一个尸巢/], ['新巢', /新的尸巢/], ['被咬', /被咬了！/], ['尸变', /已经不是/], ['治咬伤', /咬伤治好了/], ['翻到药', /翻到一个急救包/], ['台风', /台风刮了一整夜/], ['取暖', /份材料取暖/], ['冻病', /冻病了/], ['发霉', /发霉/], ['猜错天', /跟早上听/], ['说中', /说中了/], ['雷劈', /雷打中|一道雷/], ['放坏', /放坏了/], ['下种', /种下了/], ['过季', /过季了/], ['吃腻', /端起碗都叹气/], ['振作', /顶楼哼歌/], ['低落', /闷闷不乐/], ['崩溃', /人像被抽空了/], ['崩溃走', /半夜收拾东西走了，铁门/], ['聚餐', /多摆了一桌/], ['谈心', /坐了一下午|聊了一下午/], ['和解', /过节算是过去了/], ['歇一天', /睡到中午/], ['翻到种子', /种子。$/], ['煮种子', /种子煮了/], ['造工事', /造好了/], ['陷阱', /钉板陷阱绊倒/], ['放箭', /支箭，天亮/], ['种树', /种下一片树苗/], ['砍树', /把.*的树砍了/], ['做箭', /做出 \d+ 支箭/], ['改种', /改种/], ['开工', /做出 \d+ (零件|火药|化学品)/], ['修工厂', /机器修好了/], ['开枪', /发子弹。枪声/], ['压子弹', /压了一整天/], ['捡到枪', /弹匣里/], ['巢醒', /尸巢醒了/], ['约直升机', /确认了降落点/], ['直升机走', /飞走了/], ['换季', /^入.*了。/], ['开垦', /开出/], ['学会', /学会了「/], ['翻到书', /翻到一(本|整本)/], ['手册', /翻到一整本/], ['翻到物品', /研究用得上/], ['研究', /进度 \d+\//], ['差物品', /就差一样/], ['温室', /搭起了温室/], ['腌菜', /腌成了腌菜/], ['熔铁', /熔出 \d+ 份废铁/], ['懂行', /懂一点/], ['药治咬伤', /化学品配的药/]]) if (re.test(l.msg)) gearOps[k] = (gearOps[k] || 0) + 1;
+    for (const l of s.log.slice(n0)) for (const [k, re] of [['打造', /做出一件/], ['捡到', /找到了.*放进了仓库/], ['帽碎', /安全帽碎了/], ['掉落', /掉在了/], ['骑车', /骑车/], ['砍巢', /砍了尸巢/], ['端巢', /烧了尸巢/], ['巢长大', /尸巢又大了一圈|尸巢又长大了/], ['发现巢', /发现了一个尸巢/], ['新巢', /新的尸巢/], ['被咬', /被咬了！/], ['尸变', /已经不是/], ['治咬伤', /咬伤治好了/], ['翻到药', /翻到一个急救包/], ['台风', /台风刮了一整夜/], ['取暖', /份材料取暖/], ['冻病', /冻病了/], ['发霉', /发霉/], ['猜错天', /跟早上听/], ['说中', /说中了/], ['雷劈', /雷打中|一道雷/], ['放坏', /放坏了/], ['下种', /种下了/], ['过季', /过季了/], ['吃腻', /端起碗都叹气/], ['振作', /顶楼哼歌/], ['低落', /闷闷不乐/], ['崩溃', /人像被抽空了/], ['崩溃走', /半夜收拾东西走了，铁门/], ['聚餐', /多摆了一桌/], ['谈心', /坐了一下午|聊了一下午/], ['和解', /过节算是过去了/], ['歇一天', /睡到中午/], ['翻到种子', /种子。$/], ['煮种子', /种子煮了/], ['造工事', /造好了/], ['陷阱', /钉板陷阱绊倒/], ['放箭', /支箭，天亮/], ['种树', /种下一片树苗/], ['砍树', /把.*的树砍了/], ['做箭', /做出 \d+ 支箭/], ['改种', /改种/], ['开工', /做出 \d+ (零件|火药|化学品)/], ['修工厂', /机器修好了/], ['开枪', /发子弹。枪声/], ['压子弹', /压了一整天/], ['捡到枪', /弹匣里/], ['巢醒', /尸巢醒了/], ['约直升机', /确认了降落点/], ['直升机走', /飞走了/], ['换季', /^入.*了。/], ['开垦', /开出/], ['学会', /学会了「/], ['翻到书', /翻到一(本|整本)/], ['手册', /翻到一整本/], ['翻到物品', /研究用得上/], ['研究', /进度 \d+\//], ['差物品', /就差一样/], ['温室', /搭起了温室/], ['腌菜', /腌成了腌菜/], ['熔铁', /熔出 \d+ 份废铁/], ['懂行', /懂一点/], ['药治咬伤', /化学品配的药/], ['照规矩送走', /照规矩，/], ['隔离间', /隔离间里又撑过/], ['充公', /充了公/], ['下葬', /薄棺/], ['加班日', /加班日/], ['休息日', /今天是休息日/], ['自治会', /自治会开到半夜/], ['旧牵挂', /各顾各/]]) if (re.test(l.msg)) gearOps[k] = (gearOps[k] || 0) + 1;
     s = Sim.deserialize(Sim.serialize(s));
     if (s.food !== s.pantry.reduce((a, b) => a + b.n, 0)) throw new Error(`第 ${s.day} 天：存粮总数 ${s.food} 跟粮仓对不上`);
   }
@@ -194,3 +196,29 @@ console.log(`覆盖到的事件分支 ${Object.keys(seen).length} 个：${Object
   if (!(Sim.mood(cs, Sim.byId(cs, b.id)) > mb) || cs.mat !== 3) throw new Error('告别没起作用');
   if (Sim.canChat(cs, b.id)) throw new Error('一天能聊两次');
   console.log(`找人聊测试通过：告别后 ${mb} → ${Sim.mood(cs, Sim.byId(cs, b.id))}`); }
+// 律法：签一条，赞成的记好、反对的记坏；废掉以后赞成的记“说废就废”，朝令夕改 +1；同一对里不能同时签两条
+{ let ls = Sim.newGame(43, { season: 'spring' });
+  while (ls.event) ls = first(ls);
+  ls.lawSlot = 2;
+  const no = ls.surv.find(v => Sim.lawSide(v, 'ration') < 0), yes = ls.surv.find(v => Sim.lawSide(v, 'ration') > 0);
+  ls = Sim.signLaw(ls, 'ration');
+  if (!Sim.law(ls, 'ration') || ls.lawSlot !== 1) throw new Error('律法没签上');
+  if (Sim.canSign(ls, 'merit')) throw new Error('同一对的两条能同时签');
+  if (no && !Sim.byId(ls, no.id).mem.some(m => m.k === 'lawNo')) throw new Error('反对的人没记一笔');
+  if (Sim.foodUse(ls) !== Math.ceil(ls.surv.length * 0.75)) throw new Error('配给没少吃');
+  ls = Sim.repealLaw(ls, 'ration');
+  if (Sim.law(ls, 'ration') || ls.flip !== 1 || ls.lawSlot !== 0) throw new Error('废除没生效');
+  if (yes && !Sim.byId(ls, yes.id).mem.some(m => m.k === 'flipped')) throw new Error('赞成的人没记“说废就废”');
+  if (Sim.canSign(ls, 'merit')) throw new Error('没有机会也能签');
+  // 被咬就送走：当晚就送走
+  ls.lawSlot = 1; ls = Sim.signLaw(ls, 'exile');
+  const b = ls.surv[0]; b.inf = 3; b.inj = 2; const n0 = ls.surv.length;
+  ls = Sim.endDay(ls); while (ls.event) ls = first(ls);
+  if (Sim.byId(ls, b.id)) throw new Error('被咬的人没被送走');
+  // v19 存档：楼规卡转成律法和科技，挂着的选楼规事件换成一次签字机会
+  const o = JSON.parse(Sim.serialize(Sim.newGame(47, { season: 'spring' })));
+  o.v = 19; o.rules = ['ration', 'sandbag', 'commune', 'trade']; delete o.laws; delete o.lawSlot; delete o.flip; o.event = { id: 'draft', p: { opts: ['shifts'] } };
+  for (const v of o.surv) delete v.st;
+  const m3 = Sim.deserialize(JSON.stringify(o));
+  if (m3.laws.join() !== 'ration,open' || !m3.tech.done.carpentry || m3.event || m3.lawSlot !== 1 || m3.surv.some(v => !v.st || v.st.length !== 2) || m3.rules) throw new Error('v19 迁移失败：' + JSON.stringify([m3.laws, m3.event, m3.lawSlot]));
+  console.log(`律法测试通过：签、废、互斥、送走、v19 迁移`); }
