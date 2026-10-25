@@ -121,7 +121,7 @@ function policy(s, opt) {
 }
 
 function run(seed, opt) {
-  let s = Sim.newGame(seed), guard = 0, food20 = null, maxOwned = 1;
+  let s = Sim.newGame(seed, { season: opt.season || 'spring' }), guard = 0, food20 = null, maxOwned = 1;
   while (!s.over && guard++ < 120) {
     if (s.event) {
       const view = Sim.eventView(s);
@@ -156,7 +156,10 @@ if (require.main === module) {
     ['不打巢', { maxEdges: 14, strip: true, wants: true, hunt: true }],
     ['有空才打巢', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'after' }],
     ['先打巢', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', detail: true }],
+    // 其余季节都用先打巢的打法
+    ...Sim.SEASON_ORDER.slice(1).map(k => [Sim.SEASONS[k].name + '·先打巢', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', season: k }]),
   ];
+  if (process.argv[3]) variants.splice(0, variants.length, ...variants.filter(([n]) => n.includes(process.argv[3])));
   for (const [name, opt] of variants) {
     const res = []; for (let i = 0; i < N; i++) res.push(run(1000 + i, opt));
     const wins = res.filter(r => r.s.over.win).length;
