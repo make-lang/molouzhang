@@ -1,6 +1,7 @@
 // 末日楼长 · 模拟层 v0.2
 // 纯逻辑：所有函数接收 state、返回新 state，不碰 DOM。随机数种子存在 state 里，存档可完整复现。
 // v0.2：夜袭按边界逐块结算（扩张会拉长防线）；建筑可以拆掉换材料；食物充足时会有人来投奔。
+// v0.18：开局可以选街区大小：小街区 8×8，大街区 12×12（东西多、出路多、巢多，村子要 12 人）；界面一次看 8×8，能拖动、有小地图。
 // v0.17：材料分成木料、废铁、化学品；废墟上能种树；菜园的生长期改回 3–6 天，可以自己选种什么、提前换种。
 //        工事按边造（木栅、铁丝网、钉板陷阱、哨位、探照灯、诱饵），能自己做长矛、弓、弩和箭。
 //        工厂（修车厂、化工厂、加油站）要派人驻场、会坏要修、开机会吵；枪只能捡，子弹要用化工厂配的火药压。
@@ -18,8 +19,15 @@
 // v0.3：住户有绑在地图上的牵挂（救人、取物、收回老家、别拆），有期限，达成会更卖力，放着不管会出事。
 const Sim = (() => {
   'use strict';
-  const VERSION = 15;
-  const W = 8, H = 8;
+  const VERSION = 16;
+  // 街区大小：每局开局选，存在 s.W / s.H / s.base 里。小街区就是原来的 8×8；大街区 12×12，东西多、出路多，巢也多
+  const MAPS = {
+    small: { name: '小街区', W: 8, H: 8, base: [1, 6], radio: [5, 7], nests: [3, 5], nestFar: 8, scream: 2, village: 10,
+      desc: '8×8。东西少、巢少，节奏快，第一个冬天就能见分晓。' },
+    big: { name: '大街区', W: 12, H: 12, base: [1, 10], radio: [8, 11], nests: [5, 8], nestFar: 13, scream: 3, village: 12,
+      desc: '12×12。存货多、出路多，工厂和电台在不同方向；巢更多，要成村子得养活 12 人，一局更长。' },
+  };
+  const mapOf = s => MAPS[s.size] || MAPS.small;
   const SEASON_LEN = 9;     // 每季 9 天，7 季一年
   const HORDE_DAY_CAP = 20; // 尸群随天数增长，到这一天封顶
   const MULT_MAX = 1.6;     // 尸群倍率上限（巢再多也就这样）
@@ -300,10 +308,10 @@ const Sim = (() => {
   }
   const ri = (s, a, b) => a + Math.floor(rand(s) * (b - a + 1));
   const pick = (s, arr) => arr[Math.floor(rand(s) * arr.length)];
-  const tile = (s, x, y) => (x >= 0 && y >= 0 && x < W && y < H) ? s.tiles[y * W + x] : null;
-  const nbrs = (x, y) => [[1, 0], [-1, 0], [0, 1], [0, -1]]
-    .map(([dx, dy]) => [x + dx, y + dy]).filter(([a, b]) => a >= 0 && b >= 0 && a < W && b < H);
-  const frontier = (s, x, y) => nbrs(x, y).some(([a, b]) => tile(s, a, b).owned);
+  const tile = (s, x, y) => (x >= 0 && y >= 0 && x < s.W && y < s.H) ? s.tiles[y * s.W + x] : null;
+  const nbrs = (s, x, y) => [[1, 0], [-1, 0], [0, 1], [0, -1]]
+    .map(([dx, dy]) => [x + dx, y + dy]).filter(([a, b]) => a >= 0 && b >= 0 && a < s.W && b < s.H);
+  const frontier = (s, x, y) => nbrs(s, x, y).some(([a, b]) => tile(s, a, b).owned);
   const reachable = (s, x, y) => tile(s, x, y).owned || frontier(s, x, y);
   const owned = s => s.tiles.filter(t => t.owned);
   const ready = v => v.inj === 0 && v.sulk === 0 && !v.busy;   // busy：今天被事件占用，第二天就回来
@@ -341,7 +349,7 @@ const Sim = (() => {
   const tr = (v, k) => v.trait === k;
   const gear = (v, k) => v.gear === k;
   const barMax = s => 4 + (has(s, 'rebar') ? 2 : 0);
-  const coords = (s) => { const out = []; for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) out.push([x, y]); return out; };
+  const coords = (s) => { const out = []; for (let y = 0; y < s.H; y++) for (let x = 0; x < s.W; x++) out.push([x, y]); return out; };
   const nests = s => coords(s).filter(([x, y]) => tile(s, x, y).nest);
   const awake = s => nests(s).filter(([x, y]) => !tile(s, x, y).nest.sleep);   // 醒着的巢；休眠的巢不繁殖、不加尸群
   const nestHint = (s, x, y) => awake(s).some(([a, b]) => !tile(s, a, b).nest.found && Math.abs(a - x) + Math.abs(b - y) <= NEST_R);   // 界面线索：这一带有没找到的巢
@@ -533,11 +541,11 @@ const Sim = (() => {
     let people = team.reduce((a, v) => a + Math.max(0, v.fight + (bonus[v.id] || 0) + (tr(v, 'nightowl') ? 2 : 0)) + (gear(v, 'spear') ? 1 : 0) + shot(v), 0);
     if (team.length > 1 && team.some(v => tr(v, 'loud'))) people += team.length - 1;
     // 对讲机：相邻地块上拿着对讲机驻守的人，帮这里协调调度
-    const radio = Math.min(4, 2 * nbrs(x, y).filter(([a, b]) => tile(s, a, b).owned)
+    const radio = Math.min(4, 2 * nbrs(s, x, y).filter(([a, b]) => tile(s, a, b).owned)
       .reduce((n, [a, b]) => n + s.surv.filter(v => ready(v) && gear(v, 'walkie') && guardAt(v, a, b, s)).length, 0));
     people += radio;
     // 哨位：相邻自家地块上站在哨位的弓弩手，也往这边放箭
-    const tower = nbrs(x, y).filter(([a, b]) => tile(s, a, b).owned && hasTower(s, a, b))
+    const tower = nbrs(s, x, y).filter(([a, b]) => tile(s, a, b).owned && hasTower(s, a, b))
       .reduce((n, [a, b]) => n + s.surv.filter(v => ready(v) && guardAt(v, a, b, s) && GEAR[v.gear] && GEAR[v.gear].tower).reduce((m, v) => m + shot(v), 0), 0);
     // 边上的工事：木栅 +1、铁丝网 +2（巨汉撞不开）、没触发过的钉板 3
     const works = nFort(s, x, y, 'palisade') + 2 * nFort(s, x, y, 'wire'), trap = 3 * nFort(s, x, y, 'spikes', true);
@@ -555,7 +563,7 @@ const Sim = (() => {
       const t = tile(s, x, y);
       if (!t.owned) continue;
       let w = 0, e = 0;
-      for (const [a, b] of nbrs(x, y)) {
+      for (const [a, b] of nbrs(s, x, y)) {
         const n = tile(s, a, b);
         if (n.camp && s.camp && s.camp.state === 'active') continue;   // 交好的营地替你挡住那一侧
         if (!n.owned) { e++; w += 1 + 0.5 * Math.min(n.z, 4) + (n.scream && !MUTE.includes(wx) ? 3 : 0) + (n.nest && !n.nest.sleep ? 2 : 0); }
@@ -609,8 +617,7 @@ const Sim = (() => {
     v.bold = ri(s, 0, 2); v.rec = [0, 0];
   }
 
-  const BASE = [1, 6];
-  const distB = (x, y) => Math.abs(x - BASE[0]) + Math.abs(y - BASE[1]);
+  const distB = (s, x, y) => Math.abs(x - s.base[0]) + Math.abs(y - s.base[1]);
   const wantKey = s => new Set(s.surv.filter(v => v.want).map(v => `${v.want.x},${v.want.y}`));
 
   function makeWant(s, v) {
@@ -619,7 +626,7 @@ const Sim = (() => {
     for (let tries = 0; tries < 6; tries++) {
       const k = pick(s, kinds), cand = [];
       for (const [x, y] of coords(s)) {
-        const t = tile(s, x, y), d = distB(x, y);
+        const t = tile(s, x, y), d = distB(s, x, y);
         if (taken.has(`${x},${y}`) || t.t === 'base' || t.t === 'radio' || t.nest) continue;
         if (k === 'rescue' && !t.owned && ['house', 'school', 'hospital', 'mart'].includes(t.t) && d >= 2 && d <= 5) cand.push([x, y]);
         if (k === 'fetch' && !t.owned && t.t === 'house' && !t.gutted && d >= 2 && d <= 4) cand.push([x, y]);
@@ -771,21 +778,28 @@ const Sim = (() => {
       pantry: [{ k: 'can', n: 9, exp: 0 }, { k: 'rice', n: 12, exp: 1 + FOODS.rice.life }], seeds: { greens: 2, potato: 2, radish: 1, melon: 1 }, diet: [],
       stats: { killed: 0, recruited: 0, lost: 0, tilesLost: 0, stripped: 0 },
     };
-    const bx = 1, by = 6;
+    const M = MAPS[opt.size] || MAPS.small, W = M.W, H = M.H, [bx, by] = M.base;
+    Object.assign(s, { size: MAPS[opt.size] ? opt.size : 'small', W, H, base: [bx, by] });
     const grid = new Array(W * H).fill(null);
     grid[by * W + bx] = 'base';
-    {   // 电台离据点 5–7 格，位置每局不同
-      const cand = coords(s).filter(([x, y]) => { const d = Math.abs(x - bx) + Math.abs(y - by); return d >= 5 && d <= 7; });
-      const [rx, ry] = pick(s, cand); grid[ry * W + rx] = 'radio';
+    let rx, ry;
+    {   // 电台离据点 5–7 格（大街区 8–11 格），位置每局不同
+      const cand = coords(s).filter(([x, y]) => { const d = Math.abs(x - bx) + Math.abs(y - by); return d >= M.radio[0] && d <= M.radio[1]; });
+      [rx, ry] = pick(s, cand); grid[ry * W + rx] = 'radio';
     }
     const dist = (x, y) => Math.abs(x - bx) + Math.abs(y - by);
-    const specials = [['park', 2, 3], ['hardware', 2, 4], ['market', 2, 4], ['police', 3, 5], ['hospital', 3, 6],
-      ['temple', 2, 6], ['school', 3, 7], ['gas', 3, 6], ['garage', 4, 8], ['chemplant', 5, 10], ['mart', 4, 8], ['park', 4, 8], ['hardware', 5, 10], ['mart', 6, 11]];
-    for (const [t, d0, d1] of specials) {
+    // 大街区：修车厂、化工厂摆在离电台至少 6 格的地方（away），往工厂发展和往电台推进是两条路
+    const specials = s.size === 'big'
+      ? [['park', 2, 3], ['hardware', 2, 4], ['market', 2, 4], ['police', 3, 5], ['hospital', 3, 7], ['temple', 2, 6], ['school', 3, 7], ['gas', 3, 6],
+        ['mart', 4, 8], ['park', 4, 8], ['garage', 6, 11, 1], ['chemplant', 7, 13, 1], ['hardware', 5, 10], ['mart', 6, 12], ['market', 6, 12],
+        ['police', 7, 13], ['hospital', 8, 14], ['school', 8, 14], ['park', 8, 14], ['gas', 8, 14, 1], ['temple', 8, 14], ['mart', 9, 16]]
+      : [['park', 2, 3], ['hardware', 2, 4], ['market', 2, 4], ['police', 3, 5], ['hospital', 3, 6],
+        ['temple', 2, 6], ['school', 3, 7], ['gas', 3, 6], ['garage', 4, 8], ['chemplant', 5, 10], ['mart', 4, 8], ['park', 4, 8], ['hardware', 5, 10], ['mart', 6, 11]];
+    for (const [t, d0, d1, away] of specials) {
       const cand = [];
       for (const [x, y] of coords(s)) {
         const d = dist(x, y);
-        if (!grid[y * W + x] && d >= d0 && d <= d1) cand.push(y * W + x);
+        if (!grid[y * W + x] && d >= d0 && d <= d1 && (!away || Math.abs(x - rx) + Math.abs(y - ry) >= 6)) cand.push(y * W + x);
       }
       if (cand.length) grid[pick(s, cand)] = t;
     }
@@ -820,7 +834,7 @@ const Sim = (() => {
     }
     // 尸巢每局 3–5 个，数量固定：开局醒着 1–2 个，其余在休眠，隔一阵醒一个（大约第 10、19、28……天）
     {
-      const total = ri(s, 3, 5), up = rand(s) < 0.4 ? 1 : 2;
+      const total = ri(s, M.nests[0], M.nests[1]), up = rand(s) < 0.4 ? 1 : 2;
       placeNests(s, up);
       let day = ri(s, 8, 12);
       for (let i = up; i < total; i++, day += ri(s, 7, 11)) placeNests(s, 1, day);
@@ -828,7 +842,7 @@ const Sim = (() => {
     // 尖叫者：开局两只，离据点 3–6 格，听得见所以地图上看得到
     {
       const cand = coords(s).filter(([x, y]) => { const d = dist(x, y), t = tile(s, x, y); return d >= 3 && d <= 6 && t.z >= 2 && t.t !== 'radio' && !t.nest; });
-      for (let i = 0; i < 2 && cand.length; i++) { const [x, y] = cand.splice(Math.floor(rand(s) * cand.length), 1)[0]; const t = tile(s, x, y); t.scream = true; t.seen = true; }
+      for (let i = 0; i < M.scream && cand.length; i++) { const [x, y] = cand.splice(Math.floor(rand(s) * cand.length), 1)[0]; const t = tile(s, x, y); t.scream = true; t.seen = true; }
     }
     for (const j of ['退休警察', '装潢师傅', '外送员']) s.surv.push(newSurvivor(s, JOBS.find(x => x.name === j)));
     s.surv.push(newSurvivor(s)); s.surv.push(newSurvivor(s));
@@ -853,8 +867,8 @@ const Sim = (() => {
   // 尸巢摆在离据点 3–6 格（休眠的可以更远）、离我方地盘至少 3 格、彼此至少隔 3 格的地方，一开始是藏着的。
   // wake：休眠的巢第几天醒。返回摆了几个
   function placeNests(s, n, wake) {
-    const far = (x, y) => s.tiles.every((t, i) => !t.owned || Math.abs(i % W - x) + Math.abs(Math.floor(i / W) - y) >= 3);
-    const cand = coords(s).filter(([x, y]) => { const t = tile(s, x, y), d = distB(x, y); return d >= 3 && d <= (wake ? 8 : 6) && far(x, y) && !t.owned && !t.camp && !t.nest && t.t !== 'radio' && !t.scream; })
+    const far = (x, y) => s.tiles.every((t, i) => !t.owned || Math.abs(i % s.W - x) + Math.abs(Math.floor(i / s.W) - y) >= 3);
+    const cand = coords(s).filter(([x, y]) => { const t = tile(s, x, y), d = distB(s, x, y); return d >= 3 && d <= (wake ? mapOf(s).nestFar : 6) && far(x, y) && !t.owned && !t.camp && !t.nest && t.t !== 'radio' && !t.scream; })
       .filter(([x, y]) => nests(s).every(([a, b]) => Math.abs(a - x) + Math.abs(b - y) >= 3));
     let put = 0;
     for (let i = 0; i < n && cand.length; i++, put++) {
@@ -887,15 +901,15 @@ const Sim = (() => {
   const landing = s => owned(s).some(t => !t.gutted && (t.t === 'park' || t.t === 'school'));
   const radioUp = s => owned(s).some(t => eff(t).radio);
   // 自给自足：人够多，菜园和产出（按正常收成算）够全楼吃
-  const selfFed = s => s.surv.length >= 10 && income(s, 1).food >= foodUse(s);
+  const selfFed = s => s.surv.length >= mapOf(s).village && income(s, 1).food >= foodUse(s);
 
   function applyCity(s, k) {
     s.city = k;
     const ts = coords(s).map(([x, y]) => [x, y, tile(s, x, y)]);
     if (k === 'builders') for (const [, , t] of ts) if (t.t === 'ruin' || t.t === 'hardware') t.mat *= 2;
     if (k === 'screams') {
-      for (const [x, y, t] of ts) if (!t.owned && distB(x, y) <= 3) t.z = Math.floor(t.z / 2);
-      const cand = ts.filter(([x, y, t]) => distB(x, y) >= 3 && distB(x, y) <= 6 && t.z >= 1 && t.t !== 'radio' && !t.scream);
+      for (const [x, y, t] of ts) if (!t.owned && distB(s, x, y) <= 3) t.z = Math.floor(t.z / 2);
+      const cand = ts.filter(([x, y, t]) => distB(s, x, y) >= 3 && distB(s, x, y) <= 6 && t.z >= 1 && t.t !== 'radio' && !t.scream);
       for (let i = 0; i < 2 && cand.length; i++) { const t = cand.splice(Math.floor(rand(s) * cand.length), 1)[0][2]; t.scream = true; t.seen = true; }
     }
     s.log.push({ d: s.day, tone: 'info', msg: `城里的情况：${CITIES[k].name}。${CITIES[k].desc}` });
@@ -935,7 +949,7 @@ const Sim = (() => {
   // ---------- 任务 ----------
   // defend / fortify 不带坐标 = 据点；带坐标 = 那块已收复的地
   // 脚踏车：离地盘两格以内都能去
-  const near2 = (s, x, y) => s.tiles.some((t, i) => t.owned && Math.abs(i % W - x) + Math.abs(Math.floor(i / W) - y) <= 2);
+  const near2 = (s, x, y) => s.tiles.some((t, i) => t.owned && Math.abs(i % s.W - x) + Math.abs(Math.floor(i / s.W) - y) <= 2);
   const bikeReach = (s, v, x, y) => gear(v, 'bike') && !storm(s) && !flooded(s) && near2(s, x, y);
   const nestReach = (s, x, y) => { const n = tile(s, x, y).nest; return !!(n && n.found) && (storm(s) ? frontier(s, x, y) : near2(s, x, y)); };   // 端巢是远征：离地盘两格以内就能直接杀过去（台风天只能打相邻的）
   const canGo = (s, v, x, y) => reachable(s, x, y) || bikeReach(s, v, x, y);
@@ -1074,7 +1088,7 @@ const Sim = (() => {
       pay(s, fc);
       const g = fortGain(s, v);
       // 顺手把触发过的钉板重新布置好
-      const [tx, ty] = t ? [v.task.x, v.task.y] : BASE;
+      const [tx, ty] = t ? [v.task.x, v.task.y] : s.base;
       const re = outEdges(s, tx, ty).map(d => fortAt(s, tx, ty, d)).filter(f => f && f.sprung);
       if (re.length) { re.forEach(f => { f.sprung = false; }); L(`${v.name}把${re.length} 处钉板陷阱重新布置好了。`); }
       if (!t) {
@@ -1139,7 +1153,7 @@ const Sim = (() => {
         if (t.z === 0 && t.scream) { t.scream = false; L(`${nm}的尖叫者被解决了，那一带安静了下来。`, 'good'); }
         if (razed) {
           s.stats.nests = (s.stats.nests || 0) + 1;
-          for (const [a, b] of nbrs(x, y)) { const u = tile(s, a, b); if (!u.owned && !u.camp) u.z = Math.max(0, u.z - 1); }
+          for (const [a, b] of nbrs(s, x, y)) { const u = tile(s, a, b); if (!u.owned && !u.camp) u.z = Math.max(0, u.z - 1); }
           t.food += 3; t.mat += 5; t.gear.push(pick(s, NEST_LOOT));
           L(`${who}在${nm}清掉 ${kills} 只，一把火烧了尸巢！附近的丧尸散了一些。只要附近没有别的巢，这一带就不会再自己冒出丧尸。`, 'good');
           takeGear(t, who);
@@ -1156,7 +1170,7 @@ const Sim = (() => {
         if (!made) { L(`${nm}没有原料（要 ${costTxt(W_.use)}），${who}白跑一趟。`); continue; }
         s[W_.out] = (s[W_.out] || 0) + made; t.cond = cond(t) - 1;
         L(`${who}在${nm}${W_.name}，做出 ${made} ${RES[W_.out].name}。机器耐久 ${t.cond}/${COND_MAX}${t.cond <= 0 ? '，停了，要修' : ''}。`, t.cond <= 0 ? 'bad' : 'info');
-        for (const [a, b] of nbrs(x, y)) { const u = tile(s, a, b); if (!u.owned && !u.camp && u.z < 9 && rand(s) < 0.3) u.z++; }   // 机器的声音
+        for (const [a, b] of nbrs(s, x, y)) { const u = tile(s, a, b); if (!u.owned && !u.camp && u.z < 9 && rand(s) < 0.3) u.z++; }   // 机器的声音
       } else if (k === 'fix') {
         if (!canPay(s, FIX)) { L(`修${nm}要 ${costTxt(FIX)}，不够。`); continue; }
         pay(s, FIX);
@@ -1351,7 +1365,7 @@ const Sim = (() => {
       const v = byId(s, id), G = GEAR[v.gear];
       if (G.shot === 'arrow') arrows += G.per; else { bullets += G.per; noise += G.loud; }
       if (G.loud) {
-        const [gx, gy] = v.task.x == null ? BASE : [v.task.x, v.task.y];
+        const [gx, gy] = v.task.x == null ? s.base : [v.task.x, v.task.y];
         for (let i = 0; i < G.loud; i++) {
           const cand = coords(s).filter(([a, b]) => { const u = tile(s, a, b); return !u.owned && !u.camp && u.z < 9 && Math.abs(a - gx) + Math.abs(b - gy) <= 2; });
           if (cand.length) { const [a, b] = pick(s, cand); tile(s, a, b).z++; }
@@ -1397,14 +1411,14 @@ const Sim = (() => {
     // 断联：和据点不连通的地块守不住
     if (lostTiles.length) {
       const seen = new Set(), q = [];
-      for (const [x, y] of coords(s)) if (isBase(tile(s, x, y))) { q.push([x, y]); seen.add(y * W + x); }
+      for (const [x, y] of coords(s)) if (isBase(tile(s, x, y))) { q.push([x, y]); seen.add(y * s.W + x); }
       while (q.length) {
         const [x, y] = q.shift();
-        for (const [a, b] of nbrs(x, y)) if (tile(s, a, b).owned && !seen.has(b * W + a)) { seen.add(b * W + a); q.push([a, b]); }
+        for (const [a, b] of nbrs(s, x, y)) if (tile(s, a, b).owned && !seen.has(b * s.W + a)) { seen.add(b * s.W + a); q.push([a, b]); }
       }
       for (const [x, y] of coords(s)) {
         const t = tile(s, x, y);
-        if (t.owned && !seen.has(y * W + x)) {
+        if (t.owned && !seen.has(y * s.W + x)) {
           t.owned = false; t.prog = 0; t.bar = 0; t.z = 1; s.stats.tilesLost++;
           L(`${tname(t)}和据点之间的路被切断，只能放弃。`, 'bad');
         }
@@ -1465,8 +1479,8 @@ const Sim = (() => {
     if (wx !== 'typhoon' && wx !== 'cold') for (const [x, y] of coords(s)) {   // 台风、寒流的夜里不繁殖
       const t = tile(s, x, y);
       if (t.owned || t.camp || t.nest) continue;
-      const nz = nbrs(x, y).map(([a, b2]) => before[b2 * W + a]);
-      const loud = t.scream || nbrs(x, y).some(([a, b2]) => tile(s, a, b2).scream);
+      const nz = nbrs(s, x, y).map(([a, b2]) => before[b2 * s.W + a]);
+      const loud = t.scream || nbrs(s, x, y).some(([a, b2]) => tile(s, a, b2).scream);
       if (!loud && !nearNest(s, x, y)) continue;
       if (t.z > 0 && t.z < 9 && (loud || nz.some(z => z >= 3)) && rand(s) < (t.scream ? 0.35 : loud ? 0.22 : 0.12)) t.z++;
       else if (t.z === 0 && (loud || nz.some(z => z >= 2)) && rand(s) < (loud ? 0.2 : 0.08)) t.z = 1;
@@ -1535,7 +1549,7 @@ const Sim = (() => {
     s.brute = !s.over && s.day >= bd[0] && ((hb.surge && s.day >= bd[1]) || rand(s) < clamp((s.day - bd[0] + 1) * bd[2], 0, bd[3]) + bn);
     // 军方空投：每 4 天一箱，落在还没收复的街区
     if (!s.over && s.city === 'airdrop' && s.day % 4 === 1) {
-      const cand = coords(s).filter(([x, y]) => { const t = tile(s, x, y); return !t.owned && !t.camp && !t.nest && t.t !== 'radio' && distB(x, y) >= 2 && distB(x, y) <= 6; });
+      const cand = coords(s).filter(([x, y]) => { const t = tile(s, x, y); return !t.owned && !t.camp && !t.nest && t.t !== 'radio' && distB(s, x, y) >= 2 && distB(s, x, y) <= 6; });
       if (cand.length) {
         const [x, y] = pick(s, cand), t = tile(s, x, y);
         t.food += 10; t.mat += 6; t.drop = true; t.seen = true;
@@ -1805,7 +1819,7 @@ const Sim = (() => {
     const pool = ['knock', 'truck', 'trade'];
     const feud = s.rel.find(([a, b, k]) => k === 'feud' && byId(s, a) && byId(s, b));
     if (feud) pool.push('feud', 'feud');
-    const spots = (types, d0, d1) => coords(s).filter(([x, y]) => types.includes(tile(s, x, y).t) && distB(x, y) >= d0 && distB(x, y) <= d1 && freeTile(s, x, y) && !tile(s, x, y).scream);
+    const spots = (types, d0, d1) => coords(s).filter(([x, y]) => types.includes(tile(s, x, y).t) && distB(s, x, y) >= d0 && distB(s, x, y) <= d1 && freeTile(s, x, y) && !tile(s, x, y).scream);
     const campSpots = s.camp || s.day < 4 ? [] : (spots(['school'], 3, 7).length ? spots(['school'], 3, 7) : spots(['house'], 3, 6));
     if (campSpots.length) pool.push('camp_meet', 'camp_meet');
     if (campActive(s)) { pool.push('camp_trade', 'camp_trade'); if (s.camp.rep >= 0) pool.push('camp_help'); if (s.camp.rep >= 3) pool.push('camp_merge', 'camp_merge', 'camp_merge'); }
@@ -1815,7 +1829,7 @@ const Sim = (() => {
     if (sosSpots.length) pool.push('sos');
     if (!s.dog && !s.dogSeen) pool.push('dog');
     if (s.day >= 5 && !s.deserterSeen) pool.push('deserter');
-    const fireSpots = s.day < 5 ? [] : coords(s).filter(([x, y]) => { const t = tile(s, x, y); return t.seen && !['ruin', 'park'].includes(t.t) && distB(x, y) >= 2 && distB(x, y) <= 5 && freeTile(s, x, y); });
+    const fireSpots = s.day < 5 ? [] : coords(s).filter(([x, y]) => { const t = tile(s, x, y); return t.seen && !['ruin', 'park'].includes(t.t) && distB(s, x, y) >= 2 && distB(s, x, y) <= 5 && freeTile(s, x, y); });
     if (fireSpots.length) pool.push('fire');
     const id = pick(s, pool);
     let p = {};
@@ -1975,13 +1989,13 @@ const Sim = (() => {
         t.food = Math.floor(t.food / 2); t.mat = Math.floor(t.mat / 2);
         L(`${g.map(v => v.name).join('、')}去挖了一天防火巷，火在${nm}被拦住了，里面的东西烧掉一半。`);
       } else {
-        const next = nbrs(p.x, p.y).filter(([a, b]) => freeTile(s, a, b) && !isBase(tile(s, a, b)));
+        const next = nbrs(s, p.x, p.y).filter(([a, b]) => freeTile(s, a, b) && !isBase(tile(s, a, b)));
         const hit = [[p.x, p.y]];
         if (next.length) hit.push(pick(s, next));
         const names = hit.map(([a, b]) => TYPES[tile(s, a, b).t].name);
         for (const [a, b] of hit) burn(s, a, b);
         let bars = 0;
-        for (const [a, b] of hit) for (const [c, d] of nbrs(a, b)) { const o = tile(s, c, d); if (o.owned && !isBase(o) && o.bar > 0 && rand(s) < 0.3) { o.bar = 0; bars++; } }
+        for (const [a, b] of hit) for (const [c, d] of nbrs(s, a, b)) { const o = tile(s, c, d); if (o.owned && !isBase(o) && o.bar > 0 && rand(s) < 0.3) { o.bar = 0; bars++; } }
         L(`火从${names.join('烧到')}，烧了一整天。里面的丧尸烧光了，东西也是。${bars ? `旁边 ${bars} 处路障被烧掉了。` : ''}`, 'bad');
       }
     } else if (id === 'draft') {
@@ -2051,8 +2065,9 @@ const Sim = (() => {
   function serialize(s) { return JSON.stringify(s); }
   function deserialize(str) {
     const s = JSON.parse(str);
-    if (!s || !Array.isArray(s.tiles) || s.tiles.length !== W * H || !Array.isArray(s.surv)) throw new Error('存档格式不对');
+    if (!s || !Array.isArray(s.tiles) || s.tiles.length !== (s.W || 8) * (s.H || 8) || !Array.isArray(s.surv)) throw new Error('存档格式不对');
     if (s.v > VERSION) throw new Error('这个存档来自更新的版本');
+    if (s.v < 16) Object.assign(s, { size: 'small', W: 8, H: 8, base: [1, 6] });   // v15 → v16：街区大小存进存档，以前都是 8×8（地块函数要用，所以最先补）
     if (s.v < 2) { // v1 → v2：补上路障、拆除相关字段
       for (const t of s.tiles) { t.bar = t.bar || 0; t.gutted = !!t.gutted; if (t.strip == null) t.strip = TYPES[t.t].strip; }
       s.stats = Object.assign({ tilesLost: 0, stripped: 0 }, s.stats);
@@ -2116,7 +2131,7 @@ const Sim = (() => {
       s.iron = Math.floor(s.mat * 0.3); s.mat -= s.iron; s.chem = 0; s.arrow = 0; s.forts = {}; s.parts = 0; s.powder = 0; s.ammo = 0;
       // 地图上补三座工厂：挑离据点够远、还没收复的住宅或废墟改掉
       for (const [k, d0, d1, gearK] of [['gas', 3, 6], ['garage', 4, 8, 'shotgun'], ['chemplant', 5, 10]]) {
-        const cand = coords(s).filter(([x, y]) => { const t = tile(s, x, y), d = distB(x, y); return !t.owned && !t.nest && !t.camp && !t.farm && (t.t === 'house' || t.t === 'ruin') && d >= d0 && d <= d1; });
+        const cand = coords(s).filter(([x, y]) => { const t = tile(s, x, y), d = distB(s, x, y); return !t.owned && !t.nest && !t.camp && !t.farm && (t.t === 'house' || t.t === 'ruin') && d >= d0 && d <= d1; });
         if (!cand.length) continue;
         const t = tile(s, ...pick(s, cand)); t.t = k; t.strip = TYPES[k].strip; t.gutted = false;
         if (gearK) t.gear.push(gearK);
@@ -2127,7 +2142,7 @@ const Sim = (() => {
   }
 
   return {
-    VERSION, W, H, SEASON_LEN, FARM_FOOD, TILL, farmYield, FOODS, CROPS, cropK, plots, ripe, eatSeeds, setCrop, nextSeason, SEED_FOOD, SEED_P, RES, COST, canPay, costTxt, GROVE, LOG, grown, FORTS, DIRS, outEdges, fortAt, shooters, WORKS, COND_MAX, FIX, cond, WX, FLOOD_TXT, KNEE_WX, trustWx, SEASONS, SEASON_ORDER, seasonOf, forecast, selfFed, landing, INF_DAYS, NEST_R, NEST_HORDE, HORDE_BASE, nestHp, nestLv, nestZ, nestHint, FORT_MAX, BAR_MAX, TYPES, TRAITS, RULES, CITIES, ORIGINS, GEAR, equip, useMedkit, bikeReach, nestReach, canGo, craftCost, barMax, foodUse, has, surgeEvery, surgeIn,
+    VERSION, MAPS, mapOf, SEASON_LEN, FARM_FOOD, TILL, farmYield, FOODS, CROPS, cropK, plots, ripe, eatSeeds, setCrop, nextSeason, SEED_FOOD, SEED_P, RES, COST, canPay, costTxt, GROVE, LOG, grown, FORTS, DIRS, outEdges, fortAt, shooters, WORKS, COND_MAX, FIX, cond, WX, FLOOD_TXT, KNEE_WX, trustWx, SEASONS, SEASON_ORDER, seasonOf, forecast, selfFed, landing, INF_DAYS, NEST_R, NEST_HORDE, HORDE_BASE, nestHp, nestLv, nestZ, nestHint, FORT_MAX, BAR_MAX, TYPES, TRAITS, RULES, CITIES, ORIGINS, GEAR, equip, useMedkit, bikeReach, nestReach, canGo, craftCost, barMax, foodUse, has, surgeEvery, surgeIn,
     newGame, endDay, setTask, canDo, preview, resolveEvent, eventView,
     nightPlan, tileDefense, horde, beds, income, foodAhead, owned, tile, reachable, frontier, byId, ready, score, eff, tname,
     arrivalChance, serialize, deserialize, SKILL,

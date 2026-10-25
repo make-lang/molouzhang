@@ -1,6 +1,6 @@
 // v0.2 平衡检查：脚本策略按地块分配守军
 const Sim = require('../src/sim.js');
-const { W, H, TYPES } = Sim;
+const { TYPES } = Sim;
 
 // 装备：急救包先救被咬的人，再给最能打的伤员（留一个备着防咬伤）；仓库里的东西按用处发给最合适的人
 function gearUp(s, opt) {
@@ -21,6 +21,7 @@ function gearUp(s, opt) {
 
 // 端巢：空闲的人合起来一天能砍得动（扣掉游荡的丧尸还能伤到巢，而且比它每晚长回来的多）就一起上
 function sendNestTeam(s, opt, free, tasks) {
+  const { W, H } = s;
   const power = v => Math.max(1, Math.floor(v.fight * 0.8 + 0.8)) + (v.gear === 'axe' ? 1 : 0) + (v.trait === 'hothead' ? 1 : 0);
   const nestsOk = [];
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (Sim.nestReach(s, x, y)) nestsOk.push({ x, y, t: Sim.tile(s, x, y) });
@@ -55,6 +56,7 @@ const canFeed = (s, add) => { const o = outlook(s, add); return o.low >= o.use &
 
 // 会规划的：快换季时，把下一季种不活的菜园提前换种下一季最好的作物（刚好赶在换季时长好）
 function planCrops(s) {
+  const { W, H } = s;
   const left = Sim.SEASON_LEN - (s.day - 1) % Sim.SEASON_LEN, nx = Sim.nextSeason(s);
   for (const t of Sim.plots(s)) {
     if (t.crop && Sim.cropK(t.crop.k, nx) > 0) continue;
@@ -67,6 +69,7 @@ function planCrops(s) {
 }
 
 function policy(s, opt) {
+  const { W, H } = s;
   s = gearUp(s, opt);
   if (opt.plan) s = planCrops(s);
   // 快断粮了就把种子煮来吃：先吃接下来两季都用不上的，每种先留一包（会规划的留两包）
@@ -248,7 +251,7 @@ function policy(s, opt) {
 }
 
 function run(seed, opt) {
-  let s = Sim.newGame(seed, { season: opt.season || 'spring' }), guard = 0, food20 = null, maxOwned = 1;
+  let s = Sim.newGame(seed, { season: opt.season || 'spring', size: opt.size }), guard = 0, food20 = null, maxOwned = 1;
   while (!s.over && s.day <= (opt.maxDays ?? 250) && guard++ < 5000) {
     if (s.event) {
       const view = Sim.eventView(s);
@@ -288,6 +291,9 @@ if (require.main === module) {
     ['不造工事', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', plan: true, noWorks: true }],
     ['不开工厂', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', plan: true, noFactory: true }],
     ['不做武器', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', plan: true, noWeapons: true }],
+    ['大街区·会规划', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', plan: true, size: 'big' }],
+    ['大街区·先打巢', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', size: 'big' }],
+    ['大街区·奔电台', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', plan: true, goal: 'rescue', size: 'big' }],
     ['奔电台', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', plan: true, goal: 'rescue' }],
     // 其余季节都用先打巢的打法
     // 开局季节都用会规划的脚本测
