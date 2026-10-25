@@ -167,6 +167,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
 .cards.four { grid-template-columns: repeat(4, 1fr); } .cards.four .card { min-height: 0; padding: 8px; gap: 4px; }
 .box.wx { display: flex; flex-direction: column; gap: 4px; border-color: #74a6dc; margin-bottom: 6px; }
 .wxl { display: flex; gap: 6px; align-items: flex-start; } .wxl img.ic { flex-shrink: 0; margin-top: 1px; }
+.edges { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; } .btn.edge { padding: 2px 6px; } .btn.edge.sel { border-color: #f0b04a; }
 .say { display: flex; gap: 6px; align-items: flex-start; text-align: left; width: 100%; padding: 3px 5px; border: 1px solid transparent; background: none; color: inherit; font: inherit; cursor: pointer; }
 .say img.ic { flex-shrink: 0; margin-top: 1px; } .say:hover:not(:disabled) { border-color: var(--edge-hi); } .say.sel { border-color: #74a6dc; } .say:disabled { cursor: default; opacity: .75; }
 .card { display: flex; flex-direction: column; gap: 6px; padding: 10px; min-height: 150px; text-align: left; }
@@ -273,6 +274,13 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     outer:   ['wwww....', '....w...', 'wwwww.c.', '.....c..', 'www.c...', '...c....', '........', '........'],
     monsoon: ['........', 'iiiii...', '.....i..', 'iiiiiii.', '.......i', 'iiii..i.', '........', '........'],
     frost:   ['........', '.w.w.w..', '..www...', '.wwwww..', '..www...', '.w.w.w..', '........', 'iiiiiiii'],
+    iron:    ['........', '........', '.gggggg.', 'gwwwwwgg', 'gggggggg', '.gggggg.', '........', '........'],
+    chem:    ['..ww....', '..ww....', '..ww....', '.wkkw...', 'wkkkkw..', 'wkkkkw..', '.wwww...', '........'],
+    arrow:   ['.......w', '......w.', '.....b..', '....b...', '...b....', 'r.b.....', '.rr.....', 'rr......'],
+    spear:   ['......ww', '.....bw.', '....b...', '...b....', '..b.....', '.b......', 'b.......', '........'],
+    bow:     ['..bb....', '.b..w...', 'b...w...', 'b...w...', 'b...w...', '.b..w...', '..bb....', '........'],
+    xbow:    ['.bbbbb..', '...b....', '..gbg...', '...b....', '...b....', '...b....', '........', '........'],
+    arrows:  ['.......w', '......w.', '.....b..', '....b...', '...b....', 'r.b.....', '.rr.....', 'rr......'],
     flood:   ['........', '........', '.cc..cc.', 'c..cc..c', '........', '.cc..cc.', 'c..cc..c', '........'],
   };
   const PAL = { '#': '#c9c2ad', o: '#8b91a3', y: '#f0b04a', Y: '#ffd88a', b: '#9c6420', B: '#c88a3e', w: '#ebe4cf', g: '#8a93a8', z: '#a9c843', k: '#ea92b2', r: '#e2654b', c: '#74a6dc', i: '#cfe3f2' };
@@ -358,7 +366,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
   // 静态的街景（路面、楼、阴影、亮灯的窗）按地块状态画一次缓存起来；丧尸、灯光、标记这些会动的每帧重画
   const TS = 48;
   const cv = $('map'), ctx = cv.getContext('2d');
-  const TASKC = { craft: '#f0b04a', defend: '#74a6dc', fortify: '#f0b04a', scav: '#ebe4cf', clear: '#e2654b', claim: '#f0b04a', strip: '#b07a3a', rescue: '#ea92b2', farm: '#7fb257' };
+  const TASKC = { craft: '#f0b04a', defend: '#74a6dc', fortify: '#f0b04a', scav: '#ebe4cf', clear: '#e2654b', claim: '#f0b04a', strip: '#b07a3a', rescue: '#ea92b2', farm: '#7fb257', grove: '#5a8a3a', log: '#b07a3a', build: '#f0b04a' };
   const isBaseT = t => t.t === 'base';
   function hash(x, y, k) { let h = (x * 374761393 + y * 668265263 + k * 2147483647 + S.seed) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
   const px = (x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(x, y, w, h); };
@@ -367,7 +375,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
   const CROP_COL = { greens: ['#7fb257', '#9fd27a'], potato: ['#5f8a3a', '#9a6a8a'], melon: ['#6fa04a', '#e8c84a'], radish: ['#9ccf6a', '#e8e4d8'] };
   let PLANT = CROP_COL.greens;
   function tileSprite(x, y, t) {
-    const key = `${S.seed}|${x},${y}|${t.t}|${t.gutted ? 1 : 0}|${t.owned ? 1 : 0}|${t.t === 'park' && t.owned ? 'g' : ''}|${t.farm ? 'f' : ''}|${t.crop ? t.crop.k : '-'}`;
+    const key = `${S.seed}|${x},${y}|${t.t}|${t.gutted ? 1 : 0}|${t.owned ? 1 : 0}|${t.t === 'park' && t.owned ? 'g' : ''}|${t.farm ? 'f' : ''}|${t.crop ? t.crop.k : '-'}|${t.grove ? Math.min(3, 1 + Math.floor(t.grove.g / Sim.GROVE * 3)) : 0}`;
     PLANT = t.crop ? CROP_COL[t.crop.k] : null;
     let c = sprites.get(key);
     if (c) return c;
@@ -381,6 +389,11 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     else {
       (BUILD[t.t] || BUILD.ruin)(P, r, t.owned, g);
       if (t.gutted && t.t !== 'ruin') gutted(P, r);
+    }
+    if (t.grove) {   // 种的树：从小苗长成一片林子
+      const st = Math.min(3, 1 + Math.floor(t.grove.g / Sim.GROVE * 3)), sz = [0, 2, 4, 6][st];
+      P(6, 6, 36, 36, '#2a3a24');
+      for (const [a, b] of [[14, 14], [32, 13], [23, 24], [13, 33], [33, 33]]) tree(P, a, b, sz, true);
     }
     if (t.farm && t.t !== 'ruin' && !t.gutted) for (let i = 0; i < 3; i++) { P(4 + i * 15, 43, 11, 3, '#4a3626'); if (PLANT) for (let k = 0; k < 4; k++) P(5 + i * 15 + k * 3, 42 + (k % 2), 2, 2, (k + i) % 3 ? PLANT[0] : PLANT[1]); }   // 院子里的小菜畦
     if (t.owned) glow(g);
@@ -636,6 +649,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
         if (n && !n.owned) fortEdge(ox, oy, dx, dy, L);
       }
       if (isBaseT(t)) baseFort(ox, oy, tk);
+      for (const d of Sim.outEdges(S, x, y)) { const w = Sim.fortAt(S, x, y, d); if (w) edgeWork(ox, oy, Sim.DIRS[d][0], Sim.DIRS[d][1], w, tk); }
     }
     // 今晚守不住、看运气的边闪烁
     const f = PLAN.fronts.find(f => f.x === x && f.y === y);
@@ -663,6 +677,20 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
       put(u, 0, 2, 1, '#f0ece0'); put(u + 7, 0, 2, 1, '#f0ece0');
     }
     if (L >= 4) for (let u = 0; u < 47; u += 2) { put(u, 8 + (u % 4 ? 1 : 0), 2, 1, '#aab0b6'); if (u % 6 === 0) put(u + 1, 7, 1, 3, '#dfe3e6'); }   // 铁丝网
+  }
+  // 边上的工事：画在那条边中段、沙包里侧一点
+  function edgeWork(ox, oy, dx, dy, w, tk) {
+    const put = (u, d, lu, ld, c) => {
+      if (dy) px(ox + u, dy < 0 ? oy + d : oy + TS - d - ld, lu, ld, c);
+      else px(dx < 0 ? ox + d : ox + TS - d - ld, oy + u, ld, lu, c);
+    };
+    const k = w.k;
+    if (k === 'palisade') for (let u = 14; u < 34; u += 4) { put(u, 10, 2, 6, '#7a5230'); put(u, 10, 2, 1, '#c89a5e'); }
+    if (k === 'wire') for (let u = 12; u < 36; u++) put(u, 11 + (u % 4 < 2 ? 0 : 2), 1, 1, u % 3 ? '#aab0b6' : '#e6eaee');
+    if (k === 'spikes') { put(15, 11, 18, 4, w.sprung ? '#4a2a22' : '#5a4a36'); if (!w.sprung) for (let u = 16; u < 33; u += 3) put(u, 12, 1, 2, '#dfe3e6'); else put(18, 12, 12, 1, '#e2654b'); }
+    if (k === 'tower') { put(20, 9, 8, 8, '#6b4a2e'); put(21, 10, 6, 3, '#a87a4a'); put(22, 13, 1, 4, '#3a2214'); put(25, 13, 1, 4, '#3a2214'); }
+    if (k === 'light') { put(22, 11, 4, 4, '#8a939b'); put(23, 12, 2, 2, (!REDUCED && tk % 2) || S.wxNow === 'fog' ? '#fff2b0' : '#d6b06a'); }
+    if (k === 'decoy') { put(14, 11, 20, 1, '#8a8f94'); for (let u = 15; u < 33; u += 4) put(u + ((!REDUCED && tk % 2) ? 1 : 0), 12, 2, 2, u === 23 ? '#f0b04a' : '#c8ccd0'); }
   }
   // 据点本身：工事高了，一楼的窗焊上铁板、顶楼堆沙包哨位；铁门被撞坏会看得出来
   function baseFort(ox, oy, tk) {
@@ -763,7 +791,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
   const pct = p => Math.round(p * 100) + '%';
   const riskCls = p => p >= 0.3 ? 'c-red' : p >= 0.12 ? 'c-amber' : 'c-good';
   const where = (x, y) => Sim.tname(Sim.tile(S, x, y));
-  const LABEL = { farm: '开垦', craft: '打造', scav: '搜刮', clear: '清理', claim: '收复', strip: '拆除', defend: '驻守', fortify: '加固', rescue: '救人' };
+  const LABEL = { build: '造工事', grove: '种树', log: '伐木', farm: '开垦', craft: '打造', scav: '搜刮', clear: '清理', claim: '收复', strip: '拆除', defend: '驻守', fortify: '加固', rescue: '救人' };
   const daysLeft = w => w.until - S.day;
   function taskText(v) {
     if (v.inf === -1) return { t: '被咬 · 撑不过今天了', hurt: true };
@@ -775,6 +803,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     if (k === 'defend') return { t: at ? `驻守 ${where(v.task.x, v.task.y)}` : '留守据点' };
     if (k === 'fortify') return { t: at ? `堆路障 ${where(v.task.x, v.task.y)}` : '加固据点' };
     if (k === 'craft') return { t: `在据点打造${Sim.GEAR[v.task.item].name}` };
+    if (k === 'build') return { t: `造${Sim.FORTS[v.task.item.split(':')[0]].name} ${where(v.task.x, v.task.y)}` };
     return { t: `${LABEL[k]} ${where(v.task.x, v.task.y)}` };
   }
   const relOf = id => S.rel.filter(r => r[0] === id || r[1] === id).map(r => {
@@ -796,7 +825,10 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     $('hud').innerHTML = `
       <span class="res" title="${S.season ? Sim.SEASONS[S.season].desc : ''}">${ic('sun')} 第 ${S.day} 天${S.season ? `<small>${Sim.SEASONS[S.season].name} ${sd}/${Sim.SEASON_LEN}</small>` : ''}</span>
       <span class="res" title="食物：库存 / 每天净变化（明天的收成减去吃掉的）\n${pantryTxt()}">${ic('food', '食物')}<span class="${S.food + net < 0 ? 'c-red' : ''}">${S.food}</span><small class="${net < 0 ? 'c-amber' : ''}">${net >= 0 ? '+' : ''}${net}</small></span>
-      <span class="res" title="材料">${ic('mat', '材料')}${S.mat}${inc.mat ? `<small>+${inc.mat}</small>` : ''}</span>
+      <span class="res" title="木料：堆路障、取暖、做木器">${ic('mat', '木料')}${S.mat}${inc.mat ? `<small>+${inc.mat}</small>` : ''}</span>
+      <span class="res" title="废铁：焊据点铁窗、打造铁器、铁丝网">${ic('iron', '废铁')}${S.iron || 0}${inc.iron ? `<small>+${inc.iron}</small>` : ''}</span>
+      <span class="res" title="化学品：做急救包、探照灯的燃料">${ic('chem', '化学品')}${S.chem || 0}</span>
+      ${S.arrow || S.surv.some(u => u.gear === 'bow' || u.gear === 'xbow') ? `<span class="res" title="箭：弓和弩每晚每人用 1 支，天亮捡回一半">${ic('arrow', '箭')}${S.arrow || 0}</span>` : ''}
       <span class="res" title="住户 / 床位">${ic('bed', '床位')}${S.surv.length}<small>/${beds}</small></span>
       <span class="res" title="铁门耐久">${ic('gate', '铁门')}<span class="hp${S.wall <= 4 ? ' low' : ''}"><i style="width:${Math.max(0, S.wall / S.wallMax * 100)}%"></i></span><small>${S.wall}</small></span>
       ${wxHud()}
@@ -870,6 +902,8 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     claim: ['收复', '封窗、清路、接水电'],
     strip: ['拆除', '换成材料'],
     farm: ['开垦菜园', '要有种子才种得出东西'],
+    grove: ['种树', '废墟上种一片树，长成后每天出木料'],
+    log: ['伐木', '整片砍掉换木料，树要从头再长'],
   };
   const STATE_TXT = { safe: '守得住', risk: '看运气', fail: '守不住' };
   const STATE_CLS = { safe: 'c-good', risk: 'c-amber', fail: 'c-red' };
@@ -882,7 +916,9 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     if (k === 'scav') return t.food + t.mat > 0 || t.gear.length > 0;
     if (k === 'clear') return !t.owned && (t.nest && t.nest.found ? Sim.nestReach(S, x, y) : t.z > 0 && Sim.frontier(S, x, y));
     if (k === 'claim') return !t.owned && t.z === 0 && !t.nest && Sim.frontier(S, x, y);
-    if (k === 'farm') return t.owned && !base && !t.farm && t.t !== 'park';
+    if (k === 'farm') return t.owned && !base && !t.farm && !t.grove && t.t !== 'park';
+    if (k === 'grove') return t.owned && !base && !t.farm && !t.grove && (t.t === 'ruin' || t.gutted);
+    if (k === 'log') return t.owned && Sim.grown(t);
     if (k === 'rescue') return (S.sos && S.sos.x === x && S.sos.y === y) || S.surv.some(u => u.want && u.want.k === 'rescue' && u.want.x === x && u.want.y === y);
   }
   const onTile = (v, x, y) => isBaseT(Sim.tile(S, x, y)) ? (v.task.x == null || (v.task.x === x && v.task.y === y)) : (v.task.x === x && v.task.y === y);
@@ -901,6 +937,9 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     body.querySelectorAll('[data-heal]').forEach(b => b.onclick = () => commit(Sim.useMedkit(S, +b.dataset.heal)));
     body.querySelectorAll('[data-craft]').forEach(b => b.onclick = () => commit(Sim.setTask(S, selSurv, { k: 'craft', item: b.dataset.craft })));
     body.querySelectorAll('[data-fx]').forEach(b => b.onclick = () => { selTile = { x: +b.dataset.fx, y: +b.dataset.fy }; tab = 'tile'; render(); });
+    body.querySelectorAll('[data-edge]').forEach(b => b.onclick = () => { selEdge = +b.dataset.edge; render(); });
+    body.querySelectorAll('[data-build]').forEach(b => b.onclick = () => commit(Sim.setTask(S, selSurv, { k: 'build', x: selTile.x, y: selTile.y, item: b.dataset.build })));
+    body.querySelectorAll('[data-sow]').forEach(b => b.onclick = () => commit(Sim.setCrop(S, selTile.x, selTile.y, b.dataset.sow || null)));
     body.querySelectorAll('[data-eatseed]').forEach(b => b.onclick = () => commit(Sim.eatSeeds(S, b.dataset.eatseed)));
     body.querySelectorAll('[data-trust]').forEach(b => b.onclick = () => commit(Sim.trustWx(S, +b.dataset.trust)));
   }
@@ -950,23 +989,25 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
         const d = f.def;
         h += `<div class="box ${f.state}">${ic('moon')} 今晚冲击 ${f.lo}–${f.hi}，防御 ${d.total}，<span class="${STATE_CLS[f.state]}">${STATE_TXT[f.state]}</span>
           <div style="margin:3px 0">${meter(d.total, f.lo, f.hi)}</div>
-          <span class="dim">${base ? '工事' : '路障'} ${d.barRaw !== d.bar ? `${d.barRaw}→<span class="c-red">${d.bar}</span>（巨汉）` : d.bar}${base ? '' : '/' + Sim.barMax(S)} · 建筑 ${d.place} · 驻守 ${d.n} 人 +${d.people}</span></div>`;
+          <span class="dim">${base ? '工事' : '路障'} ${d.barRaw !== d.bar ? `${d.barRaw}→<span class="c-red">${d.bar}</span>（巨汉）` : d.bar}${base ? '' : '/' + Sim.barMax(S)} · 建筑 ${d.place} · 驻守 ${d.n} 人 +${d.people}${d.works ? ` · 围栏 +${d.works}` : ''}${d.trap ? ` · 陷阱 ${d.trap}` : ''}${d.tower ? ` · 哨位 +${d.tower}` : ''}${f.lit ? ' · 探照灯照着' : ''}</span></div>`;
       } else h += `<div class="box safe dim">${ic('moon')} 在地盘内侧，今晚安全。</div>`;
     }
     const v = selSurv != null ? Sim.byId(S, selSurv) : null;
+    if (t.owned) h += edgeHtml(t, x, y, v) + cropHtml(t, x, y);
+    if (t.grove) h += `<div class="box safe dim">树林：${Sim.grown(t) ? `长成了，每天修枝 +1 木料；也能派人整片砍掉换 ${Sim.LOG} 木料。` : `还要长 ${Math.ceil(Sim.GROVE - t.grove.g)} 天（冬天不长，梅雨长得快）。`}</div>`;
     const byBike = !reach && v && t.seen && Sim.bikeReach(S, v, x, y);
     const byRaid = !reach && t.seen && Sim.nestReach(S, x, y);
     if (t.seen && (nest || dorm) && !reach && !byRaid) return h + `<div class="dim">${S.wxNow === 'typhoon' ? '台风天出不了远门，只能端紧挨着地盘的巢。' : '离地盘太远。地盘推到离这里两格以内，就能派人直接来端巢。'}</div>`;
     if (!t.seen || (!reach && !byBike && !byRaid)) return h + `<div class="dim">${S.wxNow === 'typhoon' ? '台风天只能去相邻的街区，骑车、远征端巢都不行。' : `离地盘太远。先收复相邻的街区${S.surv.some(u => u.gear === 'bike') ? '，或者让骑脚踏车的人去' : ''}。`}</div>`;
     if (t.camp) return h;
     if (byBike) h += `<div class="dim">${v.name}骑脚踏车能到这里。</div>`;
-    const keys = (t.owned ? ['rescue', 'defend', 'fortify', 'farm', 'scav', 'strip'] : ['rescue', 'scav', 'clear', 'claim', 'strip'])
+    const keys = (t.owned ? ['rescue', 'defend', 'fortify', 'log', 'grove', 'farm', 'scav', 'strip'] : ['rescue', 'scav', 'clear', 'claim', 'strip'])
       .filter(k => relevant(t, x, y, k) && (reach || byBike || k === 'clear'));
     if (!keys.length) return h + `<div class="dim">这里没什么可做的。</div>`;
     if (!v) h += `<div class="c-amber">在左边选一个住户来派工。</div>`;
     h += `<div class="acts">` + keys.map(k => {
       let [name, note] = TASKS[k];
-      if (k === 'fortify') { name = base ? '加固工事' : '堆路障'; note = base ? '工事+1~2，修铁门，耗 2 材料' : `路障 ${t.bar}/${Sim.barMax(S)}，+1~2，耗 2 材料`; }
+      if (k === 'fortify') { name = base ? '加固工事' : '堆路障'; note = base ? `工事+1~2，修铁门，耗 ${Sim.costTxt(Sim.COST.base)}` : `路障 ${t.bar}/${Sim.barMax(S)}，+1~2，耗 ${Sim.costTxt(Sim.COST.bar)}`; }
       if (k === 'defend' && base) name = '留守';
       if (k === 'clear' && (nest || dorm)) { name = '端巢'; note = '几个人同一天一起上'; }
       if (k === 'strip') note = S.surv.some(u => u.want && u.want.k === 'protect' && u.want.x === x && u.want.y === y) ? '有人不准拆，拆了会结仇' : (t.owned ? '换材料，加成立刻没了' : '一次拿走大量材料');
@@ -984,6 +1025,31 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     const here = S.surv.filter(u => Sim.ready(u) && onTile(u, x, y) && !(base && u.task.x == null && u.task.k === 'defend'));
     if (here.length) h += `<div class="here dim">在这里：${here.map(u => `${u.name}·${LABEL[u.task.k]} <button data-recall="${u.id}">叫回</button>`).join('，')}</div>`;
     return h;
+  }
+
+  // 边上的工事：先点一条边，再选造什么
+  let selEdge = null;
+  function edgeHtml(t, x, y, v) {
+    const ed = Sim.outEdges(S, x, y);
+    if (!ed.length) return '';
+    if (!ed.includes(selEdge)) selEdge = ed[0];
+    let h = `<div class="gh">边上的工事 <span class="dim">每条朝外的边能造一样</span></div><div class="edges">`;
+    h += ed.map(d => { const f = Sim.fortAt(S, x, y, d); return `<button class="btn edge${d === selEdge ? ' sel' : ''}" data-edge="${d}">朝${Sim.DIRS[d][2]}：${f ? `<span class="c-amber">${Sim.FORTS[f.k].name}</span>${f.sprung ? '<span class="c-red">（要重新布置）</span>' : ''}` : '<span class="dim">空</span>'}</button>`; }).join('') + `</div>`;
+    const cur = Sim.fortAt(S, x, y, selEdge);
+    h += `<div class="acts">` + Object.keys(Sim.FORTS).map(k => {
+      const F = Sim.FORTS[k], item = `${k}:${selEdge}`, ok = v && Sim.ready(v) && Sim.canDo(S, v, 'build', x, y, item) && Sim.canPay(S, F.cost) && !(cur && cur.k === k);
+      const on = v && v.task.k === 'build' && v.task.item === item && v.task.x === x && v.task.y === y;
+      return `<button class="btn act" data-build="${item}" ${ok && !on ? '' : 'disabled'}><span>${on ? `${v.name}正在造${F.name}` : `朝${Sim.DIRS[selEdge][2]}造${F.name}`}</span><span class="dim">${Sim.costTxt(F.cost)}</span><small>${cur && cur.k === k ? '已经有了' : !Sim.canPay(S, F.cost) ? '材料不够' : F.desc}${cur && cur.k !== k ? `（会拆掉${Sim.FORTS[cur.k].name}）` : ''}</small></button>`;
+    }).join('') + `</div>`;
+    if (!v) h += `<div class="dim">选一个人来造，一天造好，造完留在这里守夜。</div>`;
+    return h;
+  }
+  // 菜园种什么：自己选，或者交给自动（这一季收成最好的）
+  function cropHtml(t, x, y) {
+    if (!(t.farm || (t.t === 'park' && !t.gutted))) return '';
+    return `<div class="gh">种什么 <span class="dim">选了就马上用一包种子换种</span></div><div class="edges">` +
+      `<button class="btn edge${!t.sow ? ' sel' : ''}" data-sow="">自动</button>` +
+      Object.keys(Sim.CROPS).map(k => `<button class="btn edge${t.sow === k ? ' sel' : ''}" data-sow="${k}" ${(S.seeds[k] || 0) > 0 || t.sow === k ? '' : 'disabled'}>${FN(k)}<span class="dim">×${S.seeds[k] || 0}</span></button>`).join('') + `</div>`;
   }
 
   // 粮仓：按种类合计，写出最快几天后坏
@@ -1036,8 +1102,8 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     h += `<div class="gh">在据点打造</div>`;
     if (!v) h += `<div class="dim">先在左边选人。打造的人白天在据点敲敲打打，夜里照样守据点。</div>`;
     else for (const k of Object.keys(G).filter(k => G[k].cost)) {
-      const c = Sim.craftCost(v, k), ok = Sim.canDo(S, v, 'craft', null, null, k) && S.mat >= c, on = v.task.k === 'craft' && v.task.item === k;
-      h += `<button class="btn act" data-craft="${k}" ${ok && !on ? '' : 'disabled'}><span>${on ? `${v.name}正在打造` : `打造${G[k].name}`}</span><span>${ic('mat')}${c}</span><small>${!Sim.ready(v) ? `${v.name}现在出不了力` : S.mat < c ? '材料不够' : G[k].desc}</small></button>`;
+      const c = Sim.craftCost(v, k), pay = Sim.canPay(S, c), ok = Sim.canDo(S, v, 'craft', null, null, k) && pay, on = v.task.k === 'craft' && v.task.item === k;
+      h += `<button class="btn act" data-craft="${k}" ${ok && !on ? '' : 'disabled'}><span>${on ? `${v.name}正在打造` : `打造${G[k].name}`}</span><span class="dim">${Sim.costTxt(c)}</span><small>${!Sim.ready(v) ? `${v.name}现在出不了力` : !pay ? '材料不够' : G[k].desc}</small></button>`;
     }
     return h;
   }
@@ -1137,6 +1203,10 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
         <li>尸巢藏在街区里，每局 1–3 个，中途还会冒出新的。丧尸只在巢附近繁殖，巢每晚往四周喷丧尸，每一级还让夜里的尸群多 5%，出现后每 10 天长大一级。地块面板写着“丧尸会自己繁殖”，附近三格内就有巢；地盘推到两格以内，或者有人在巢旁边干活，就能找到它（地图上暗红色、会鼓动的肉堆）。找到后离地盘两格以内就能派人直接去端，最好几个人同一天一起上；端掉的巢里常有前人留下的装备。</li>
         <li>被丧尸弄伤有时是咬伤，住户卡上会写“被咬 · 还剩几晚”。到期前用急救包、或者收复医院就能治好；懂护理的人留守据点能多拖一晚。拖到最后，就得决定送他走，还是绑起来赌一把。急救包除了开局那几个，搜刮医院、超市、住宅时偶尔也能翻到。</li>
         <li>住户之间有旧识和过节。有人心里有牵挂（粉色小旗）：救家人、拿东西、收回老家、不准拆某栋楼。达成了他会更卖力，放着不管会出事。</li>
+        <li>材料有三种：木料（堆路障、取暖、做木器）、废铁（焊据点的铁窗、打造铁器、铁丝网）、化学品（做急救包、探照灯的燃料）。搜刮和拆楼时按地方分拣：五金行、派出所、超市废铁多，医院、五金行有化学品，住宅、国小多半是木料。五金行收复后每天出 1 废铁。废墟和拆过的楼上能种树，长 20 天（冬天不长）成林，之后每天出 1 木料，也能整片砍掉换 10 木料、从头再长。</li>
+        <li>边上的工事：每块地朝外的每条边能造一样东西，派一个人花一天、付材料造好。木栅 +1 防御，铁丝网 +2 而且巨汉撞不开，钉板陷阱先挡掉 3 点、触发后要派人来这块地“加固”重新布置，哨位让站在上面拿弓弩的人也帮相邻的自家地块放箭，探照灯让雾夜的冲击不再说不准，诱饵把尸群往这块地多引一些。诱饵加陷阱加哨位，就是一块杀伤区。</li>
+        <li>武器：长矛只要木料，守夜战斗 +1；弓（木料）+2、弩（木料加废铁）+3，每晚每人用掉 1 支箭、天亮捡回一半，没箭就没用。箭在据点做，一次 6 支。</li>
+        <li>菜园可以自己选种什么（地块面板里），选了就马上用一包种子换种；选下一季的作物可以提前种下，等换季时正好长好。</li>
         <li>装备：每人能带一件，在“装备”分页里分配。撬棍在五金行、对讲机在派出所、急救包在医院和超市，住宅里有脚踏车，废墟里有安全帽（地图上的黄点）；消防斧和安全帽也能花材料在据点打造。受伤时身上的东西可能掉在原地。</li>
         <li>清晨偶尔会有事找上门：街区里的另一伙人（白旗）、收音机里的求救信号（蓝旗）、发烧的住户、烧起来的楼。有些事会接着发展好几天。</li>
       </ol>

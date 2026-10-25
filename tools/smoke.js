@@ -23,9 +23,12 @@ for (let i = 0; i < 400; i++) {
     }
     // 随机给几个人派活，覆盖各种任务分支
     for (const v of s.surv) {
-      if ((v.id + s.day) % 9 === 0 && s.mat >= 6) { s = Sim.setTask(s, v.id, { k: 'craft', item: ['crowbar', 'axe', 'helmet'][s.day % 3] }); continue; }
+      if ((v.id + s.day) % 9 === 0 && s.mat >= 6) { s = Sim.setTask(s, v.id, { k: 'craft', item: ['crowbar', 'axe', 'helmet', 'spear', 'bow', 'xbow', 'arrows', 'medkit'][s.day % 8] }); continue; }
       const x = (v.id * 3 + s.day) % Sim.W, y = (v.id * 5 + s.day) % Sim.H;
-      for (const k of ['rescue', 'clear', 'claim', 'farm', 'strip', 'scav', 'fortify', 'defend'])
+      // 造工事：在朝外的边上轮流造各种
+      const fk = Object.keys(Sim.FORTS)[(v.id + s.day) % 6], ed = Sim.outEdges(s, x, y);
+      if ((v.id + s.day) % 5 === 0 && ed.length && Sim.canDo(s, v, 'build', x, y, `${fk}:${ed[0]}`)) { s = Sim.setTask(s, v.id, { k: 'build', x, y, item: `${fk}:${ed[0]}` }); continue; }
+      for (const k of ['rescue', 'clear', 'claim', 'log', 'grove', 'farm', 'strip', 'scav', 'fortify', 'defend'])
         if (Sim.canDo(s, v, k, x, y)) { s = Sim.setTask(s, v.id, { k, x, y }); break; }
     }
     // 端巢：每隔几天把能打的人派去够得着的巢
@@ -35,6 +38,11 @@ for (let i = 0; i < 400; i++) {
       for (const v of s.surv.filter(v => v.fight >= 3)) s = Sim.setTask(s, v.id, { k: 'clear', x, y });
       break;
     }
+    // 据点的边上轮流造工事
+    { const v = s.surv[s.day % Math.max(1, s.surv.length)], b = s.tiles.findIndex(t => t.t === 'base'), bx = b % Sim.W, by = Math.floor(b / Sim.W), ed = Sim.outEdges(s, bx, by);
+      if (v && ed.length && s.day % 3 === 0) s = Sim.setTask(s, v.id, { k: 'build', x: bx, y: by, item: `${Object.keys(Sim.FORTS)[Math.floor(s.day / 3) % 6]}:${ed[s.day % ed.length]}` }); }
+    // 菜园：偶尔自己选种什么
+    if (s.day % 7 === 0) for (const t of Sim.plots(s)) { const i = s.tiles.indexOf(t); s = Sim.setCrop(s, i % Sim.W, Math.floor(i / Sim.W), Object.keys(Sim.CROPS)[s.day % 4]); }
     // 粮食：偶尔把种子煮来吃
     if (s.day % 13 === 0) { const k = Object.keys(s.seeds).find(k => s.seeds[k] > 0); if (k) s = Sim.eatSeeds(s, k); }
     // 天气：偶尔改听别人的
@@ -43,7 +51,7 @@ for (let i = 0; i < 400; i++) {
     if (Sim.forecast(s) && Sim.forecast(s).flood) wxSeen['淹水'] = (wxSeen['淹水'] || 0) + 1;
     const n0 = s.log.length;
     s = Sim.endDay(s);
-    for (const l of s.log.slice(n0)) for (const [k, re] of [['打造', /做出一件/], ['捡到', /找到了.*放进了仓库/], ['帽碎', /安全帽碎了/], ['掉落', /掉在了/], ['骑车', /骑车/], ['砍巢', /砍了尸巢/], ['端巢', /烧了尸巢/], ['巢长大', /尸巢又大了一圈|尸巢又长大了/], ['发现巢', /发现了一个尸巢/], ['新巢', /新的尸巢/], ['被咬', /被咬了！/], ['尸变', /已经不是/], ['治咬伤', /咬伤治好了/], ['翻到药', /翻到一个急救包/], ['台风', /台风刮了一整夜/], ['取暖', /份材料取暖/], ['冻病', /冻病了/], ['发霉', /发霉/], ['猜错天', /跟早上听/], ['说中', /说中了/], ['雷劈', /雷打中|一道雷/], ['放坏', /放坏了/], ['下种', /种下了/], ['过季', /过季了/], ['吃腻', /吃不下了/], ['翻到种子', /种子。$/], ['煮种子', /种子煮了/], ['巢醒', /尸巢醒了/], ['约直升机', /确认了降落点/], ['直升机走', /飞走了/], ['换季', /^入.*了。/], ['开垦', /开出/]]) if (re.test(l.msg)) gearOps[k] = (gearOps[k] || 0) + 1;
+    for (const l of s.log.slice(n0)) for (const [k, re] of [['打造', /做出一件/], ['捡到', /找到了.*放进了仓库/], ['帽碎', /安全帽碎了/], ['掉落', /掉在了/], ['骑车', /骑车/], ['砍巢', /砍了尸巢/], ['端巢', /烧了尸巢/], ['巢长大', /尸巢又大了一圈|尸巢又长大了/], ['发现巢', /发现了一个尸巢/], ['新巢', /新的尸巢/], ['被咬', /被咬了！/], ['尸变', /已经不是/], ['治咬伤', /咬伤治好了/], ['翻到药', /翻到一个急救包/], ['台风', /台风刮了一整夜/], ['取暖', /份材料取暖/], ['冻病', /冻病了/], ['发霉', /发霉/], ['猜错天', /跟早上听/], ['说中', /说中了/], ['雷劈', /雷打中|一道雷/], ['放坏', /放坏了/], ['下种', /种下了/], ['过季', /过季了/], ['吃腻', /吃不下了/], ['翻到种子', /种子。$/], ['煮种子', /种子煮了/], ['造工事', /造好了/], ['陷阱', /钉板陷阱绊倒/], ['放箭', /支箭，天亮/], ['种树', /种下一片树苗/], ['砍树', /把.*的树砍了/], ['做箭', /做出 \d+ 支箭/], ['改种', /改种/], ['巢醒', /尸巢醒了/], ['约直升机', /确认了降落点/], ['直升机走', /飞走了/], ['换季', /^入.*了。/], ['开垦', /开出/]]) if (re.test(l.msg)) gearOps[k] = (gearOps[k] || 0) + 1;
     s = Sim.deserialize(Sim.serialize(s));
     if (s.food !== s.pantry.reduce((a, b) => a + b.n, 0)) throw new Error(`第 ${s.day} 天：存粮总数 ${s.food} 跟粮仓对不上`);
   }
