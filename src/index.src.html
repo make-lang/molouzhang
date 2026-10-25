@@ -213,6 +213,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
       <button role="tab" data-tab="tile">地块</button>
       <button role="tab" data-tab="night">今晚</button>
       <button role="tab" data-tab="gear">仓库</button>
+      <button role="tab" data-tab="tech">研究</button>
       <button role="tab" data-tab="log">记事</button>
     </div>
     <div id="sidebody" class="scroll"></div>
@@ -378,7 +379,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
   // 静态的街景（路面、楼、阴影、亮灯的窗）按地块状态画一次缓存起来；丧尸、灯光、标记这些会动的每帧重画
   const TS = 48;
   const cv = $('map'), ctx = cv.getContext('2d');
-  const TASKC = { craft: '#f0b04a', defend: '#74a6dc', fortify: '#f0b04a', scav: '#ebe4cf', clear: '#e2654b', claim: '#f0b04a', strip: '#b07a3a', rescue: '#ea92b2', farm: '#7fb257', grove: '#5a8a3a', log: '#b07a3a', build: '#f0b04a', work: '#c88a3e', fix: '#8a93a8' };
+  const TASKC = { study: '#9a8ad8', hot: '#7fb257', craft: '#f0b04a', defend: '#74a6dc', fortify: '#f0b04a', scav: '#ebe4cf', clear: '#e2654b', claim: '#f0b04a', strip: '#b07a3a', rescue: '#ea92b2', farm: '#7fb257', grove: '#5a8a3a', log: '#b07a3a', build: '#f0b04a', work: '#c88a3e', fix: '#8a93a8' };
   const isBaseT = t => t.t === 'base';
   function hash(x, y, k) { let h = (x * 374761393 + y * 668265263 + k * 2147483647 + S.seed) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
   const px = (x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(x, y, w, h); };
@@ -627,6 +628,10 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     if (t.t === 'radio') px(ox + 37, oy + 1, 2, 2, S.rescueDay ? '#ffd27a' : blink ? '#e2463a' : '#5a1f1a');
     if (t.t === 'temple' && t.owned) { px(ox + 14, oy + 19, 3, 4, blink ? '#ff9a3a' : '#e2702a'); px(ox + 31, oy + 19, 3, 4, blink ? '#e2702a' : '#ff9a3a'); }
     if (t.owned && !REDUCED && hash(x, y, tk >> 3) > 0.92) px(ox + 9 + Math.floor(hash(x, y, tk) * 28), oy + 16 + Math.floor(hash(x, y, tk + 1) * 16), 4, 3, '#161b26');   // 偶尔有扇窗熄灯
+    if (t.hot && t.owned) {   // 温室：一层反光的塑料棚，两道骨架
+      ctx.globalAlpha = 0.28; px(ox + 6, oy + 12, 36, 26, '#cfeaf5'); ctx.globalAlpha = 1;
+      px(ox + 6, oy + 12, 36, 1, '#e8f6fb'); px(ox + 17, oy + 12, 1, 26, '#a8c8d4'); px(ox + 30, oy + 12, 1, 26, '#a8c8d4');
+    }
     if (!t.owned) px(ox, oy, TS, TS, reach ? 'rgba(6,8,14,.3)' : 'rgba(6,8,14,.52)');
     if (t.camp) {   // 另一伙人：帐篷和旗子
       for (const [a, b] of [[9, 30], [24, 33]]) { px(ox + a, oy + b, 10, 6, '#7a6a4a'); px(ox + a + 2, oy + b - 3, 6, 3, '#8a7a5a'); px(ox + a + 4, oy + b + 2, 2, 4, '#2a241a'); }
@@ -877,7 +882,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
   const pct = p => Math.round(p * 100) + '%';
   const riskCls = p => p >= 0.3 ? 'c-red' : p >= 0.12 ? 'c-amber' : 'c-good';
   const where = (x, y) => Sim.tname(Sim.tile(S, x, y));
-  const LABEL = { work: '开工', fix: '维修', build: '造工事', grove: '种树', log: '伐木', farm: '开垦', craft: '打造', scav: '搜刮', clear: '清理', claim: '收复', strip: '拆除', defend: '驻守', fortify: '加固', rescue: '救人' };
+  const LABEL = { study: '研究', hot: '搭温室', work: '开工', fix: '维修', build: '造工事', grove: '种树', log: '伐木', farm: '开垦', craft: '打造', scav: '搜刮', clear: '清理', claim: '收复', strip: '拆除', defend: '驻守', fortify: '加固', rescue: '救人' };
   const daysLeft = w => w.until - S.day;
   function taskText(v) {
     if (v.inf === -1) return { t: '被咬 · 撑不过今天了', hurt: true };
@@ -889,6 +894,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     if (k === 'defend') return { t: at ? `驻守 ${where(v.task.x, v.task.y)}` : '留守据点' };
     if (k === 'fortify') return { t: at ? `堆路障 ${where(v.task.x, v.task.y)}` : '加固据点' };
     if (k === 'craft') return { t: `在据点打造${Sim.GEAR[v.task.item].name}` };
+    if (k === 'study') return { t: S.tech.cur ? `研究「${Sim.TECHS[S.tech.cur].name}」` : '研究（还没定研究什么）' };
     if (k === 'build') return { t: `造${Sim.FORTS[v.task.item.split(':')[0]].name} ${where(v.task.x, v.task.y)}` };
     return { t: `${LABEL[k]} ${where(v.task.x, v.task.y)}` };
   }
@@ -993,6 +999,8 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     log: ['伐木', '整片砍掉换木料，树要从头再长'],
     work: ['驻场开工', '机器开一天掉 1 点耐久，会吵'],
     fix: ['维修机器', `耗 ${Sim.costTxt(Sim.FIX)}`],
+    study: ['研究', '在据点研究科技，夜里照样守据点'],
+    hot: ['搭温室', '4 木料，冬天照样长'],
   };
   const STATE_TXT = { safe: '守得住', risk: '看运气', fail: '守不住' };
   const STATE_CLS = { safe: 'c-good', risk: 'c-amber', fail: 'c-red' };
@@ -1002,13 +1010,15 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     if (k === 'defend') return t.owned;
     if (k === 'fortify') return t.owned && (base || t.bar < Sim.barMax(S));
     if (k === 'strip') return !base && t.strip > 0 && t.z === 0 && !t.nest;   // 没找到的巢那格总有丧尸，本来就拆不了
-    if (k === 'scav') return t.food + t.mat > 0 || t.gear.length > 0;
+    if (k === 'scav') return t.food + t.mat > 0 || t.gear.length > 0 || (t.items || []).length > 0 || (t.books || []).length > 0;
     if (k === 'clear') return !t.owned && (t.nest && t.nest.found ? Sim.nestReach(S, x, y) : t.z > 0 && Sim.frontier(S, x, y));
     if (k === 'claim') return !t.owned && t.z === 0 && !t.nest && Sim.frontier(S, x, y);
     if (k === 'farm') return t.owned && !base && !t.farm && !t.grove && t.t !== 'park';
     if (k === 'grove') return t.owned && !base && !t.farm && !t.grove && (t.t === 'ruin' || t.gutted);
     if (k === 'log') return t.owned && Sim.grown(t);
     if (k === 'work' || k === 'fix') return t.owned && !!Sim.WORKS[t.t] && !t.gutted;
+    if (k === 'study') return base;
+    if (k === 'hot') return t.owned && !t.hot && Sim.tech(S, 'hothouse') && Sim.plots(S).includes(t);
     if (k === 'rescue') return (S.sos && S.sos.x === x && S.sos.y === y) || S.surv.some(u => u.want && u.want.k === 'rescue' && u.want.x === x && u.want.y === y);
   }
   const onTile = (v, x, y) => isBaseT(Sim.tile(S, x, y)) ? (v.task.x == null || (v.task.x === x && v.task.y === y)) : (v.task.x === x && v.task.y === y);
@@ -1018,9 +1028,11 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     const nFail = PLAN.fronts.filter(f => f.state === 'fail').length;
     $('tabs').querySelector('[data-tab="night"]').innerHTML = `今晚${nFail ? ` <span class="c-red">!${nFail}</span>` : ''}`;
     const body = $('sidebody');
-    body.innerHTML = tab === 'tile' ? tileHtml() : tab === 'night' ? nightHtml() : tab === 'gear' ? gearHtml() : logHtml();
+    body.innerHTML = tab === 'tile' ? tileHtml() : tab === 'night' ? nightHtml() : tab === 'gear' ? gearHtml() : tab === 'tech' ? techHtml() : logHtml();
     body.scrollTop = 0;
-    body.querySelectorAll('[data-task]').forEach(b => b.onclick = () => commit(Sim.setTask(S, selSurv, { k: b.dataset.task, x: selTile.x, y: selTile.y })));
+    body.querySelectorAll('[data-task]').forEach(b => b.onclick = () => commit(Sim.setTask(S, selSurv, b.dataset.task === 'study' ? { k: 'study' } : { k: b.dataset.task, x: selTile.x, y: selTile.y })));
+    body.querySelectorAll('[data-research]').forEach(b => b.onclick = () => commit(Sim.setResearch(S, b.dataset.research)));
+    body.querySelectorAll('[data-study]').forEach(b => b.onclick = () => commit(Sim.setTask(S, selSurv, { k: 'study' })));
     body.querySelectorAll('[data-recall]').forEach(b => b.onclick = () => commit(Sim.setTask(S, +b.dataset.recall, { k: 'defend' })));
     body.querySelectorAll('[data-give]').forEach(b => b.onclick = () => commit(Sim.equip(S, selSurv, b.dataset.give)));
     body.querySelectorAll('[data-unequip]').forEach(b => b.onclick = () => commit(Sim.equip(S, +b.dataset.unequip, null)));
@@ -1060,6 +1072,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
       h += `<div class="box fail"><span class="c-red">尸巢 · ${n.lv} 级 · 巢还剩 ${n.hp}/${max}</span><br><span class="dim">每晚往两格内喷丧尸，还让整个街区的尸群 +${Math.round(Sim.NEST_HORDE * n.lv * 100)}%；离巢 ${Sim.NEST_R} 格以内的丧尸会自己繁殖。${nextLv && S.day < nextLv ? `第 ${nextLv} 天会长大一级。` : ''}<br>端巢：派人来清理，先砍游荡的丧尸（这一格最多 ${Sim.nestZ(n.lv)} 只），多出来的力气才砍得到巢。巢每晚长回 1 点，最好几个人同一天一起上。离地盘两格以内就能直接杀过去，不用先打通路，但这些人今晚不在家。</span></div>`;
     }
     if (t.seen && !base) h += `<div class="kv">${ic('food')}${t.food}　${ic('mat')}${t.mat}${t.strip > 0 ? `　<span class="dim">可拆 ${t.strip}</span>` : ''}</div>`;
+    if (t.seen && ((t.items || []).length || (t.books || []).length)) h += `<div class="box kin dim">${(t.items || []).length ? `翻得到：<span class="c-amber">${t.items.map(k => Sim.ITEMS[k].name).join('、')}</span>。` : ''}${(t.books || []).length ? `有 ${t.books.length} 本书。` : ''}搜刮、拆除或收复这里就能带回去，研究用得上。</div>`;
     if (t.seen && t.gear.length) h += `<div class="box kin dim">地上有：${t.gear.map(k => `${ic(k)}<span class="c-amber">${Sim.GEAR[k].name}</span>`).join('、')}。搜刮、拆除或收复这里就能带回去。</div>`;
     if (t.camp) {
       const hostile = S.camp && S.camp.state === 'hostile';
@@ -1092,7 +1105,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     if (!t.seen || (!reach && !byBike && !byRaid)) return h + `<div class="dim">${S.wxNow === 'typhoon' ? '台风天只能去相邻的街区，骑车、远征端巢都不行。' : `离地盘太远。先收复相邻的街区${S.surv.some(u => u.gear === 'bike') ? '，或者让骑脚踏车的人去' : ''}。`}</div>`;
     if (t.camp) return h;
     if (byBike) h += `<div class="dim">${v.name}骑脚踏车能到这里。</div>`;
-    const keys = (t.owned ? ['rescue', 'defend', 'fortify', 'work', 'fix', 'log', 'grove', 'farm', 'scav', 'strip'] : ['rescue', 'scav', 'clear', 'claim', 'strip'])
+    const keys = (t.owned ? ['rescue', 'defend', 'fortify', 'study', 'work', 'fix', 'hot', 'log', 'grove', 'farm', 'scav', 'strip'] : ['rescue', 'scav', 'clear', 'claim', 'strip'])
       .filter(k => relevant(t, x, y, k) && (reach || byBike || k === 'clear'));
     if (!keys.length) return h + `<div class="dim">这里没什么可做的。</div>`;
     if (!v) h += `<div class="c-amber">在左边选一个住户来派工。</div>`;
@@ -1127,7 +1140,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     let h = `<div class="gh">边上的工事 <span class="dim">每条朝外的边能造一样</span></div><div class="edges">`;
     h += ed.map(d => { const f = Sim.fortAt(S, x, y, d); return `<button class="btn edge${d === selEdge ? ' sel' : ''}" data-edge="${d}">朝${Sim.DIRS[d][2]}：${f ? `<span class="c-amber">${Sim.FORTS[f.k].name}</span>${f.sprung ? '<span class="c-red">（要重新布置）</span>' : ''}` : '<span class="dim">空</span>'}</button>`; }).join('') + `</div>`;
     const cur = Sim.fortAt(S, x, y, selEdge);
-    h += `<div class="acts">` + Object.keys(Sim.FORTS).map(k => {
+    h += `<div class="acts">` + Object.keys(Sim.FORTS).filter(k => !Sim.FORTS[k].tech || Sim.tech(S, Sim.FORTS[k].tech)).map(k => {
       const F = Sim.FORTS[k], item = `${k}:${selEdge}`, ok = v && Sim.ready(v) && Sim.canDo(S, v, 'build', x, y, item) && Sim.canPay(S, F.cost) && !(cur && cur.k === k);
       const on = v && v.task.k === 'build' && v.task.item === item && v.task.x === x && v.task.y === y;
       return `<button class="btn act" data-build="${item}" ${ok && !on ? '' : 'disabled'}><span>${on ? `${v.name}正在造${F.name}` : `朝${Sim.DIRS[selEdge][2]}造${F.name}`}</span><span class="dim">${Sim.costTxt(F.cost)}</span><small>${cur && cur.k === k ? '已经有了' : !Sim.canPay(S, F.cost) ? '材料不够' : F.desc}${cur && cur.k !== k ? `（会拆掉${Sim.FORTS[cur.k].name}）` : ''}</small></button>`;
@@ -1138,7 +1151,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
   // 菜园种什么：自己选，或者交给自动（这一季收成最好的）
   function cropHtml(t, x, y) {
     if (!(t.farm || (t.t === 'park' && !t.gutted))) return '';
-    return `<div class="gh">种什么 <span class="dim">选了就马上用一包种子换种</span></div><div class="edges">` +
+    return (t.hot ? `<div class="box safe dim">温室：冬天照样长、不怕霜，冬天每天烧 1 木料（烧不起就跟露天一样）。</div>` : '') + `<div class="gh">种什么 <span class="dim">选了就马上用一包种子换种</span></div><div class="edges">` +
       `<button class="btn edge${!t.sow ? ' sel' : ''}" data-sow="">自动</button>` +
       Object.keys(Sim.CROPS).map(k => `<button class="btn edge${t.sow === k ? ' sel' : ''}" data-sow="${k}" ${(S.seeds[k] || 0) > 0 || t.sow === k ? '' : 'disabled'}>${FN(k)}<span class="dim">×${S.seeds[k] || 0}</span></button>`).join('') + `</div>`;
   }
@@ -1200,8 +1213,8 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     }
     h += `<div class="gh">在据点打造</div>`;
     if (!v) h += `<div class="dim">先在左边选人。打造的人白天在据点敲敲打打，夜里照样守据点。</div>`;
-    else for (const k of Object.keys(G).filter(k => G[k].cost)) {
-      const c = Sim.craftCost(v, k), pay = Sim.canPay(S, c), ok = Sim.canDo(S, v, 'craft', null, null, k) && pay, on = v.task.k === 'craft' && v.task.item === k;
+    else for (const k of Object.keys(G).filter(k => G[k].cost && (!G[k].tech || Sim.tech(S, G[k].tech)))) {
+      const c = Sim.craftCost(v, k, S), pay = Sim.canPay(S, c), ok = Sim.canDo(S, v, 'craft', null, null, k) && pay, on = v.task.k === 'craft' && v.task.item === k;
       h += `<button class="btn act" data-craft="${k}" ${ok && !on ? '' : 'disabled'}><span>${on ? `${v.name}正在打造` : `打造${G[k].name}`}</span><span class="dim">${Sim.costTxt(c)}</span><small>${!Sim.ready(v) ? `${v.name}现在出不了力` : !pay ? '材料不够' : G[k].desc}</small></button>`;
     }
     return h;
@@ -1241,6 +1254,33 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
       <span class="dim">${T.radio ? '有广播就不用猜了。' : '各人看天的本事不一样，口气硬不代表准。点一个人，今晚就按他说的估算。'}</span></div>`;
   }
 
+  // 研究分页：正在研究的、各分支的科技、手里的关键物品
+  function techHtml() {
+    const v = selSurv != null ? Sim.byId(S, selSurv) : null, TT = Sim.TECHS, cur = S.tech.cur, IT = Sim.ITEMS;
+    const who = S.surv.filter(u => u.task.k === 'study' && Sim.ready(u)), school = Sim.owned(S).some(t => t.t === 'school');
+    const rate = who.reduce((a, u) => a + Sim.studyPts(u), 0) * (school ? 1.5 : 1);
+    const bar = (p, n) => `<span class="hp" style="display:inline-block;vertical-align:middle"><i style="width:${Math.round(p / n * 100)}%"></i></span>`;
+    const needTxt = k => TT[k].need ? `要用掉一样：${TT[k].need.map(i => `<span class="${(S.items[i] || 0) > 0 ? 'c-good' : ''}">${IT[i].name}${(S.items[i] || 0) > 0 ? `×${S.items[i]}` : ''}</span>`).join(' 或 ')}` : '不用特别的东西';
+    let h = `<div class="gh">正在研究 <span class="dim">每天 ${rate % 1 ? rate.toFixed(1) : rate} 点${school ? '（国小的图书室多一半）' : ''}</span></div>`;
+    if (cur) {
+      const p = S.tech.prog[cur] || 0, T2 = TT[cur], stuck = p >= T2.pts && !Sim.haveNeed(S, cur);
+      h += `<div class="box ${stuck ? 'fail' : 'safe'}"><span class="c-amber">${T2.name}</span>　${bar(p, T2.pts)} ${p}/${T2.pts}${rate && !stuck && p < T2.pts ? `　<span class="dim">约 ${Math.ceil((T2.pts - p) / rate)} 天</span>` : ''}<br><span class="dim">${T2.desc}<br>${needTxt(cur)}${stuck ? '。<span class="c-red">进度满了，就差这样东西</span>' : ''}</span></div>`;
+    } else h += `<div class="dim">还没定研究哪一项。在下面挑一项。</div>`;
+    h += `<div class="dim">${who.length ? `在研究的：${who.map(u => u.name).join('、')}。` : '还没有人在研究。'}研究的人在据点干活，夜里照样守据点；大学生、国中老师研究得快一倍。书、懂行的人也会给进度。</div>`;
+    if (v) h += `<div class="acts"><button class="btn act" data-study="1" ${Sim.canDo(S, v, 'study') && v.task.k !== 'study' ? '' : 'disabled'}><span>${v.task.k === 'study' ? `${v.name}正在研究` : `派${v.name}去研究`}</span><span class="dim">每天 +${Sim.studyPts(v)}</span></button></div>`;
+    for (const br of Sim.BRANCHES) {
+      h += `<div class="gh">${br}</div>`;
+      for (const k of Object.keys(TT).filter(k => TT[k].br === br)) {
+        const T2 = TT[k], p = S.tech.prog[k] || 0, done = Sim.tech(S, k), open = Sim.techOpen(S, k);
+        const lock = done ? '' : T2.pre && !Sim.tech(S, T2.pre) ? `要先学会「${TT[T2.pre].name}」` : T2.site && !Sim.owned(S).some(t => t.t === T2.site) ? `要先收复${T[T2.site].name}` : '';
+        const right = done ? '<span class="c-good">学会了</span>' : k === cur ? '<span class="c-amber">研究中</span>' : open ? `<button class="btn" data-research="${k}">研究这个</button>` : `<span class="dim">${lock}</span>`;
+        h += `<div class="gi"><div class="row2"><span><span class="${done ? 'c-good' : 'c-amber'}">${T2.name}</span>${done ? '' : `　${bar(p, T2.pts)} <span class="dim">${p}/${T2.pts}</span>`}</span>${right}</div><span class="dim">${T2.desc}${done ? '' : `<br>${needTxt(k)}`}</span></div>`;
+      }
+    }
+    const have = Object.keys(IT).filter(k => (S.items[k] || 0) > 0);
+    h += `<div class="gh">关键物品 <span class="dim">搜刮、拆除、收复时翻到</span></div>` + (have.length ? `<div class="edges">${have.map(k => `<span class="btn edge">${IT[k].name} ${S.items[k]}</span>`).join('')}</div>` : '<div class="dim">还没有。地块面板会写哪里翻得到。</div>');
+    return h;
+  }
   function logHtml() {
     const byDay = {};
     for (const l of S.log) (byDay[l.d] = byDay[l.d] || []).push(l);
@@ -1286,6 +1326,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
       <p class="dim">停电第三天，你被推举为这栋老公寓的楼长。电台说救援一个月内会到，前提是你们撑得到那时候。</p>
       <ol class="scroll" style="max-height:330px">
         <li>在左边选一个住户，再点地图上的街区，右边会列出能做的事：搜刮、清理丧尸、收复、拆除、驻守、加固。</li>
+        <li>研究（“研究”分页）：派人在据点研究，攒研究点学会科技，夜里照样守据点。科技分农耕、营造、医护三支，有的要先收复某栋楼，有的研究完要用掉一样关键物品（几样里任选一样，地块面板会写哪里翻得到）。翻到书、来了懂行的人（护理师、装潢师傅、菜贩……）也会直接给进度，运气好翻到整本手册就直接学会。</li>
         <li>开新局时可以选街区大小：小街区 8×8，节奏快；大街区 12×12，东西多、出路多、巢也多，一局更长。大街区一次只看得到一部分，按住地图拖动，或者点右下角的小地图移过去。</li>
         <li>夜里尸群会从每块和未收复街区接壤的地盘进攻，边界越长来得越多，地图边缘不会来丧尸。底栏和“今晚”分页会提前标出守不住的地方，地图上会闪红。</li>
         <li>边界街区守不住就会丢，和据点断开的地块也会一起丢。据点守不住会撞坏铁门，铁门撞开就输了。</li>

@@ -156,7 +156,7 @@ function policy(s, opt) {
   const fo = opt.plan ? outlook(s) : null;
   const crisis = !!fo && fo.low < fo.use * 2;   // 接下来的淡季会断粮
   const hungry = s.food < s.surv.length * 3;
-  let fortified = 0, farmed = 0, hungryScav = 0, seedHunt = false, groved = false;
+  let fortified = 0, farmed = 0, hungryScav = 0, seedHunt = false, groved = false, hotBuilt = 0;
   const fit = d => Object.keys(Sim.CROPS).filter(k => Sim.cropK(k, Sim.seasonOf(s, s.day + d)) > 0).reduce((a, k) => a + (s.seeds[k] || 0), 0);
   const winterSeeds = Object.keys(Sim.CROPS).filter(k => Sim.cropK(k, 'winter') > 0).reduce((a, k) => a + (s.seeds[k] || 0), 0);
   const seedShort = fit(0) < 2 || fit(9) < Sim.plots(s).length || (winterSoon && winterSeeds < Sim.plots(s).length);
@@ -197,7 +197,26 @@ function policy(s, opt) {
   }
   if (!opt.noGear && !opt.noCraft && s.stash.filter(k => k === 'medkit').length < 2) {
     const h = home();
-    if (h && spare(Sim.craftCost(h, 'medkit'))) tasks[h.id] = { k: 'craft', item: 'medkit' };
+    if (h && spare(Sim.craftCost(h, 'medkit', s))) tasks[h.id] = { k: 'craft', item: 'medkit' };
+  }
+  // 熔铁：会规划的废铁不够、木料有多，让一个留守的人烧炉子
+  if (opt.plan && !opt.noTech && Sim.tech(s, 'smelt') && res.iron < 3 && res.mat >= 9) {
+    const h = home();
+    if (h) { tasks[h.id] = { k: 'craft', item: 'ingot' }; res.mat -= 3; }
+  }
+  // 研究：留守据点、没在打造的人白天顺手研究（夜里照样守）。会规划的先挑省事、见效快的，先打巢按表上的顺序
+  if (!opt.noTech) {
+    const ORDER = opt.plan ? ['compost', 'stretcher', 'herb', 'clean', 'carpentry', 'breed', 'gate', 'hothouse', 'smelt', 'cure', 'pickle', 'shock'] : Object.keys(Sim.TECHS);
+    const ready2 = k => Sim.techOpen(s, k) && ((s.tech.prog[k] || 0) < Sim.TECHS[k].pts || Sim.haveNeed(s, k));
+    // 会规划的先挑手里有要用的物品（或者不用物品）的，免得进度攒满了卡着
+    const usable = k => !opt.plan || !Sim.TECHS[k].need || Sim.haveNeed(s, k);
+    if (!s.tech.cur || !ready2(s.tech.cur) || !usable(s.tech.cur)) { const k = ORDER.find(k => ready2(k) && usable(k)) || ORDER.find(ready2); if (k && k !== s.tech.cur) s = Sim.setResearch(s, k); }
+    if (s.tech.cur) for (const v of s.surv) if (tasks[v.id] && tasks[v.id].k === 'defend' && tasks[v.id].x == null) tasks[v.id] = { k: 'study' };
+    // 会规划的：不缺粮时，没人在研究就从空闲的人里拉一个专门研究（挑研究快、不太能打的）
+    if (opt.plan && s.tech.cur && !hungry && !crisis && free.length > 2 && !Object.values(tasks).some(t => t.k === 'study')) {
+      const v = free.slice().sort((a, b) => Sim.studyPts(b) - Sim.studyPts(a) || a.fight - b.fight)[0];
+      free.splice(free.indexOf(v), 1); tasks[v.id] = { k: 'study' };
+    }
   }
   // 会规划的：自家的工厂有原料就派一个人驻场，快坏了就修（不饿的时候）
   if (opt.plan && !opt.noFactory && !hungry) for (const t of Sim.owned(s).filter(t => Sim.WORKS[t.t] && !t.gutted)) {
@@ -230,6 +249,9 @@ function policy(s, opt) {
     if (!opt.noFarm && farmable.length && wantFarm) {
       const i = s.tiles.indexOf(farmable[0]); tasks[v.id] = { k: 'farm', x: i % W, y: Math.floor(i / W) }; farmed++; continue;
     }
+    // 会规划的：学会温室后，入冬前在收成最好的两块菜园上搭温室
+    const hotable = opt.plan && !opt.noTech && Sim.tech(s, 'hothouse') && res.mat >= 8 && [0, 9].some(d => Sim.seasonOf(s, s.day + d) === 'winter') ? Sim.plots(s).filter(t => !t.hot).sort((a, b) => Sim.farmYield(b) - Sim.farmYield(a)) : [];
+    if (hotable.length && Sim.plots(s).filter(t => t.hot).length + hotBuilt < 2) { const i = s.tiles.indexOf(hotable[hotBuilt] || hotable[0]); tasks[v.id] = { k: 'hot', x: i % W, y: Math.floor(i / W) }; hotBuilt++; res.mat -= 4; continue; }
     // 会规划的：不缺粮的时候在废墟上种一两片树，以后有木料
     const grovable = Sim.owned(s).filter(t => Sim.canDo(s, v, 'grove', s.tiles.indexOf(t) % W, Math.floor(s.tiles.indexOf(t) / W)));
     if (opt.plan && !crisis && !groved && grovable.length && Sim.owned(s).filter(t => t.grove).length < 2 && s.surv.length >= 5) { const i = s.tiles.indexOf(grovable[0]); tasks[v.id] = { k: 'grove', x: i % W, y: Math.floor(i / W) }; groved = true; continue; }
@@ -289,6 +311,8 @@ if (require.main === module) {
     ['先打巢', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', detail: true }],
     ['会规划', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', plan: true }],
     ['不造工事', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', plan: true, noWorks: true }],
+    ['不研究', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', plan: true, noTech: true }],
+    ['先打巢不研究', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', noTech: true }],
     ['不开工厂', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', plan: true, noFactory: true }],
     ['不做武器', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', plan: true, noWeapons: true }],
     ['大街区·会规划', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', plan: true, size: 'big' }],
