@@ -205,7 +205,8 @@ if (require.main === module) {
     // 开局季节都用会规划的脚本测
     ...Sim.SEASON_ORDER.filter(k => k !== 'spring').map(k => [Sim.SEASONS[k].name + '·会规划', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', plan: true, season: k }]),
   ];
-  if (process.argv[3]) variants.splice(0, variants.length, ...variants.filter(([n]) => n.includes(process.argv[3])));
+  // 名字完全对上就只跑那一个，不然跑名字里带这几个字的（逗号隔开可以给几个）
+  if (process.argv[3]) { const ks = process.argv[3].split(','); variants.splice(0, variants.length, ...variants.filter(([n]) => ks.some(k => n === k) || (!variants.some(([m]) => ks.includes(m)) && ks.some(k => n.includes(k))))); }
   for (const [name, opt] of variants) {
     const res = []; for (let i = 0; i < N; i++) res.push(run(1000 + i, opt));
     const wins = res.filter(r => r.s.over && r.s.over.win).length;

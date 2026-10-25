@@ -1,6 +1,7 @@
 // 末日楼长 · 模拟层 v0.2
 // 纯逻辑：所有函数接收 state、返回新 state，不碰 DOM。随机数种子存在 state 里，存档可完整复现。
 // v0.2：夜袭按边界逐块结算（扩张会拉长防线）；建筑可以拆掉换材料；食物充足时会有人来投奔。
+// v0.15：天气分得更细（13 种），有多天的过程（外围环流→台风→淹水，东北季风→寒流→霜）；预报改成住户各说各的，每人有藏着的看天本事，靠战绩分辨该听谁的。
 // v0.14：没有时间限制了。季节在一局里轮换（7 季，每季 9 天），尸群有上限，尸巢数量固定、有的在休眠；三个不明说的结局：叫救援、烧光尸巢、熬过冬天自给自足。
 // v0.13：天气和季节。每晚的天气提前掷好，白天只能看天象猜，可能猜错；季节决定这局的天气表，赢一局解锁下一个季节。
 // v0.11：感染。被丧尸弄伤可能是咬伤，三晚内要用急救包、送医院，否则会尸变；懂护理的人在家能拖一晚。
@@ -13,7 +14,7 @@
 // v0.3：住户有绑在地图上的牵挂（救人、取物、收回老家、别拆），有期限，达成会更卖力，放着不管会出事。
 const Sim = (() => {
   'use strict';
-  const VERSION = 12;
+  const VERSION = 13;
   const W = 8, H = 8;
   const SEASON_LEN = 9;     // 每季 9 天，7 季一年
   const HORDE_DAY_CAP = 20; // 尸群随天数增长，到这一天封顶
@@ -147,54 +148,80 @@ const Sim = (() => {
   const NEST_LOOT = ['axe', 'helmet', 'medkit', 'walkie'];
 
   // 天气：s.wxNow 是今天白天的天气（抬头就看得到）。s.wx[0] 是今晚、s.wx[1] 是明晚，真实天气 w 早就掷好了，
-  // 界面只看得到天象 sg 和楼长的判断 g，可能猜错。今晚的天气会延续到明天白天：白天的效果看 wxNow，夜里的看 wx[0].w。
+  // 界面只看得到住户们各自的猜测（say）和楼长听了谁的（g），可能猜错。今晚的天气会延续到明天白天：白天的效果看 wxNow，夜里的看 wx[0].w。
+  // 有几种天气是一段过程的一环：外围环流之后一定是台风，台风过后淹水一天；寒流前先刮一两天东北季风，寒流走了常常下霜。
   const WX = {
-    sunny:   { name: '晴',   day: '没什么特别的。', night: '没什么特别的。' },
-    cloudy:  { name: '阴',   day: '没什么特别的。', night: '没什么特别的。' },
-    rain:    { name: '雨',   day: '雨声盖住脚步，搜刮、救人受伤率 -30%；但存粮超过每人 4 份的部分会发霉两成。', night: '尖叫者的叫声传不远，引不来尸群，也不会冒出新的尖叫者。' },
-    fog:     { name: '雾',   day: '看不清远处有多少丧尸；但人能摸得更近，在巢两格以内干活就会发现它。', night: '看不清尸群有多少，可能少很多，也可能多很多。' },
-    heat:    { name: '酷暑', day: '丧尸被晒得发软，清理受伤率 -40%。', night: '热得睡不着的不只是人，尸群 +15%。' },
-    typhoon: { name: '台风', day: '只能去相邻的街区，骑车、远征端巢都不行，出门干活效率减半。', night: '风雨太大，尸群 -40%，街上的丧尸被吹散一些；但街区的路障各掉一层。' },
-    cold:    { name: '寒流', day: '没什么特别的。', night: '丧尸冻得发僵，尸群 -10%，也不会四处繁殖；但要烧材料取暖（每 2 人 1 份），不够就有人冻病。' },
+    sunny:   { name: '晴',     day: '没什么特别的。', night: '没什么特别的。' },
+    cloudy:  { name: '阴',     day: '没什么特别的。', night: '没什么特别的。' },
+    drizzle: { name: '毛毛雨', day: '细雨沙沙响，搜刮、救人受伤率 -15%。', night: '没什么特别的。' },
+    rain:    { name: '大雨',   day: '雨声盖住脚步，搜刮、救人受伤率 -30%；但存粮超过每人 4 份的部分会发霉两成。', night: '尖叫者的叫声传不远，引不来尸群，也不会冒出新的尖叫者。' },
+    thunder: { name: '雷阵雨', day: '午后一阵雷雨，很快就停了。', night: '雷声盖过尖叫，尖叫者引不来尸群；雷可能打中街上哪一栋，烧掉那里的丧尸和存货。' },
+    fog:     { name: '雾',     day: '看不清远处有多少丧尸；但人能摸得更近，在巢两格以内干活就会发现它。', night: '看不清尸群有多少，可能少很多，也可能多很多。' },
+    humid:   { name: '回南天', day: '墙壁地板都在冒水，存粮超过每人 2 份的部分会发霉一成半。', night: '没什么特别的。' },
+    heat:    { name: '酷暑',   day: '丧尸被晒得发软，清理受伤率 -40%。', night: '热得睡不着的不只是人，尸群 +15%。' },
+    outer:   { name: '外围环流', day: '风雨一阵一阵的，搜刮、救人受伤率 -15%。台风要来了。', night: '风雨一阵一阵的，尸群 -10%。台风要来了。' },
+    typhoon: { name: '台风',   day: '只能去相邻的街区，骑车、远征端巢都不行，出门干活效率减半。', night: '风雨太大，尸群 -40%，街上的丧尸被吹散一些；但街区的路障各掉一层。过后会淹水一天。' },
+    monsoon: { name: '东北季风', day: '风又冷又大。', night: '风把声音吹散了，尸群 -5%。常常是寒流的前兆。' },
+    cold:    { name: '寒流',   day: '没什么特别的。', night: '丧尸冻得发僵，尸群 -10%，也不会四处繁殖；但要烧材料取暖（每 2 人 1 份），不够就有人冻病。' },
+    frost:   { name: '霜',     day: '早上地上一层白霜，菜园今天没有收成。', night: '没什么特别的。' },
   };
-  const WX_NIGHT = { heat: 1.15, typhoon: 0.6, cold: 0.9 };   // 尸群倍率
-  const WX_NIGHT_TXT = { sunny: '夜里天气晴朗。', cloudy: '夜里阴阴的，看不到月亮。', rain: '入夜下起了雨。', fog: '入夜起了大雾。', heat: '入夜还是热得喘不过气。', typhoon: '台风来了，风雨大得吓人。', cold: '寒流来了，冷得人发抖。' };
-  // 看错天象时，只会错成相邻的天气（报大雨可能只是阴天，不会是大太阳）
-  const WX_NEAR = { sunny: ['cloudy', 'heat'], cloudy: ['sunny', 'rain', 'fog', 'cold'], rain: ['cloudy', 'fog', 'typhoon'], fog: ['cloudy', 'rain', 'cold'], heat: ['sunny', 'rain'], typhoon: ['rain'], cold: ['cloudy', 'fog'] };
+  const FLOOD_TXT = '台风过后街上淹水：漂来不少东西，搜刮每人多带 1 材料；但积水里骑不了车。';
+  const WX_NIGHT = { heat: 1.15, typhoon: 0.6, cold: 0.9, outer: 0.9, monsoon: 0.95 };   // 尸群倍率
+  const MUTE = ['rain', 'thunder'];   // 尖叫者叫不响的夜
+  const WX_NIGHT_TXT = { sunny: '夜里天气晴朗。', cloudy: '夜里阴阴的，看不到月亮。', drizzle: '入夜飘起了毛毛雨。', rain: '入夜下起了大雨。', thunder: '入夜打起了雷，雨哗哗地下。', fog: '入夜起了大雾。', humid: '夜里湿得被子都是潮的。', heat: '入夜还是热得喘不过气。', outer: '夜里风雨一阵一阵的。', typhoon: '台风来了，风雨大得吓人。', monsoon: '东北季风呼呼地刮了一夜。', cold: '寒流来了，冷得人发抖。', frost: '夜里又干又冷，天亮会结霜。' };
+  // 看错天象时，只会错成相邻的天气（报大雨可能只是阴天，不会是大太阳）；瞎猜的人才会错得离谱
+  const WX_NEAR = {
+    sunny: ['cloudy', 'heat', 'frost'], cloudy: ['sunny', 'drizzle', 'fog', 'monsoon'], drizzle: ['cloudy', 'rain', 'fog', 'humid'],
+    rain: ['drizzle', 'thunder', 'outer'], thunder: ['rain', 'heat'], fog: ['cloudy', 'drizzle', 'humid'], humid: ['fog', 'drizzle', 'cloudy'],
+    heat: ['sunny', 'thunder'], outer: ['rain', 'typhoon', 'thunder'], typhoon: ['outer', 'rain'], monsoon: ['cloudy', 'cold'],
+    cold: ['monsoon', 'frost', 'cloudy'], frost: ['cold', 'sunny'],
+  };
   // 天象：w 是这条线索会跟着哪些天气出现。只跟一种天气有关的线索最可靠
   const SIGNS = [
-    { txt: '天很蓝，一丝云都没有', w: ['sunny', 'heat'] },
+    { txt: '天很蓝，一丝云都没有', w: ['sunny', 'heat', 'frost'] },
     { txt: '晚霞橘红', w: ['sunny'] },
-    { txt: '星星很亮', w: ['sunny', 'cold'] },
-    { txt: '云层灰灰的，看不见太阳', w: ['cloudy', 'rain', 'fog'] },
-    { txt: '风有点凉', w: ['cloudy', 'cold'] },
-    { txt: '空气潮得黏手', w: ['rain', 'fog', 'typhoon'] },
-    { txt: '蚂蚁排着队往高处搬', w: ['rain', 'typhoon'] },
-    { txt: '远处闷闷地打雷', w: ['rain', 'heat'] },
+    { txt: '星星很亮', w: ['sunny', 'frost', 'cold'] },
+    { txt: '云层灰灰的，看不见太阳', w: ['cloudy', 'drizzle', 'fog'] },
+    { txt: '风有点凉', w: ['cloudy', 'monsoon'] },
+    { txt: '空气潮得黏手', w: ['rain', 'humid', 'fog', 'typhoon'] },
+    { txt: '蚂蚁排着队往高处搬', w: ['rain', 'thunder', 'typhoon'] },
+    { txt: '远处闷闷地打雷', w: ['thunder', 'heat'] },
     { txt: '河那边白茫茫一片', w: ['fog'] },
-    { txt: '没有一丝风，湿气很重', w: ['fog', 'heat'] },
+    { txt: '没有一丝风，湿气很重', w: ['fog', 'humid'] },
     { txt: '热得柏油路都软了', w: ['heat'] },
     { txt: '蝉叫得特别凶', w: ['heat', 'sunny'] },
-    { txt: '云跑得飞快，一层层往这边压', w: ['typhoon'] },
-    { txt: '晚霞红得发紫', w: ['typhoon', 'sunny'] },
+    { txt: '云跑得飞快，一层层往这边压', w: ['typhoon', 'outer'] },
+    { txt: '晚霞红得发紫', w: ['typhoon', 'outer', 'sunny'] },
     { txt: '鸟都往内陆飞', w: ['typhoon'] },
-    { txt: '北风一阵比一阵紧', w: ['cold', 'typhoon'] },
-    { txt: '玻璃上结了一层霜', w: ['cold'] },
+    { txt: '北风一阵比一阵紧', w: ['monsoon', 'cold'] },
+    { txt: '玻璃上结了一层霜', w: ['frost', 'cold'] },
     { txt: '天阴沉沉的，冷到骨子里', w: ['cold', 'cloudy'] },
+    { txt: '墙壁和地板一直冒水珠', w: ['humid'] },
+    { txt: '天灰蒙蒙的，飘着细细的雨丝', w: ['drizzle'] },
+    { txt: '下午积雨云堆得老高', w: ['thunder'] },
+    { txt: '收音机沙沙响个不停', w: ['thunder', 'rain'] },
+    { txt: '风一阵大一阵小，忽然又泼下一阵雨', w: ['outer', 'rain'] },
+    { txt: '云又低又厚，压得人透不过气', w: ['rain', 'thunder', 'outer'] },
+    { txt: '天特别清，冷得发脆', w: ['frost', 'cold'] },
+    { txt: '北边的天压着一片铅灰色', w: ['monsoon', 'cold'] },
   ];
-  const KNEE_WX = ['rain', 'typhoon', 'cold'];
+  const KNEE_WX = ['rain', 'thunder', 'outer', 'typhoon', 'monsoon', 'cold'];   // 变天：老寒腿的膝盖会疼
+  // 看天的本事：每人一档，藏着不给看（瞎猜 / 一般 / 准），只能靠记事里的战绩去摸。说话有没有把握（v.bold）跟准不准无关
+  const SKY_ACC = [0.4, 0.65, 0.85];
   // 季节：一局里轮着来，每季 9 天。wx 是天气表，stay 是天气延续到下一晚的机会，farm 是菜园（公园、屋顶菜园）的收成倍率
   const SEASONS = {
-    early:  { name: '初春',   start: '开局温和', desc: '春寒料峭，常起雾、飘毛毛雨，雾里找巢不容易。菜园刚下种，收成一半。', wx: { cloudy: 4, fog: 3, rain: 2, sunny: 2, cold: 1 }, stay: 0.45, farm: 0.5 },
-    spring: { name: '春末',   start: '开局温和', desc: '天气温和，多半是晴天和阴天，偶尔下雨、起雾。适合往外扩张。', wx: { sunny: 4, cloudy: 3, rain: 2, fog: 1 }, stay: 0.4, farm: 1 },
-    plum:   { name: '梅雨',   start: '开局一般', desc: '雨下个不停。雨天搜刮安全，尖叫者也引不来尸群，但存粮会发霉。', wx: { cloudy: 2, rain: 6, fog: 2, sunny: 1 }, stay: 0.55, farm: 1 },
-    summer: { name: '盛夏',   start: '开局一般', desc: '白天热得丧尸发软，夜里却更吵；偶尔会来台风。', wx: { sunny: 4, heat: 3, rain: 2, cloudy: 1, typhoon: 1 }, stay: 0.45, farm: 1 },
-    autumn: { name: '秋老虎', start: '开局较难', desc: '还是很热，台风最多的季节。路障要提前堆高。', wx: { sunny: 3, heat: 2, typhoon: 2, rain: 2, cloudy: 1 }, stay: 0.4, farm: 1 },
-    late:   { name: '深秋',   start: '开局最难', desc: '东北季风起了，阴雨一连好几天。菜园收成减半，该为冬天囤东西了。', wx: { cloudy: 4, rain: 3, fog: 2, sunny: 1, cold: 1 }, stay: 0.55, farm: 0.5 },
-    winter: { name: '寒冬',   start: '开局较难', desc: '寒流和浓雾轮着来。冷的夜里丧尸少，但要烧材料取暖；菜园种不出东西。', wx: { cloudy: 3, fog: 2, cold: 5, sunny: 1, rain: 1 }, stay: 0.5, farm: 0 },
+    early:  { name: '初春',   start: '开局温和', desc: '春寒料峭，常起雾、飘毛毛雨，还有回南天，存粮容易发霉。菜园刚下种，收成一半。', wx: { cloudy: 3, fog: 3, drizzle: 3, humid: 2, sunny: 2, cold: 1 }, stay: 0.45, farm: 0.5 },
+    spring: { name: '春末',   start: '开局温和', desc: '天气温和，多半是晴天和阴天，偶尔下雨、起雾、打雷。适合往外扩张。', wx: { sunny: 4, cloudy: 3, drizzle: 1, rain: 1, fog: 1, thunder: 1 }, stay: 0.4, farm: 1 },
+    plum:   { name: '梅雨',   start: '开局一般', desc: '大雨下个不停。雨天搜刮安全，尖叫者也引不来尸群，但存粮会发霉。', wx: { rain: 5, cloudy: 2, drizzle: 2, humid: 1, fog: 1, thunder: 1, sunny: 1 }, stay: 0.55, farm: 1 },
+    summer: { name: '盛夏',   start: '开局一般', desc: '白天热得丧尸发软，夜里却更吵；午后常有雷阵雨，偶尔会来台风。', wx: { sunny: 4, heat: 3, thunder: 3, rain: 1, cloudy: 1, typhoon: 1 }, stay: 0.45, farm: 1 },
+    autumn: { name: '秋老虎', start: '开局较难', desc: '还是很热，台风最多的季节。看到外围环流就该把路障堆高。', wx: { sunny: 3, heat: 2, typhoon: 2, thunder: 1, rain: 1, cloudy: 1 }, stay: 0.4, farm: 1 },
+    late:   { name: '深秋',   start: '开局最难', desc: '东北季风起了，阴雨一连好几天。菜园收成减半，该为冬天囤东西了。', wx: { cloudy: 3, drizzle: 2, monsoon: 2, fog: 2, rain: 1, sunny: 1, cold: 1 }, stay: 0.55, farm: 0.5 },
+    winter: { name: '寒冬',   start: '开局较难', desc: '寒流一波接一波，走了还会下霜。冷的夜里丧尸少，但要烧材料取暖；菜园种不出东西。', wx: { cloudy: 2, monsoon: 2, fog: 2, cold: 4, sunny: 1, drizzle: 1 }, stay: 0.5, farm: 0 },
   };
   const SEASON_ORDER = ['early', 'spring', 'plum', 'summer', 'autumn', 'late', 'winter'];
   const seasonOf = (s, day = s.day) => SEASON_ORDER[(SEASON_ORDER.indexOf(s.start) + Math.floor((Math.max(1, day) - 1) / SEASON_LEN)) % SEASON_ORDER.length];
+  // 这个季节可能出现的天气（连同过程里的环节），猜错时从这里挑
+  const wxSet = k => { const ks = Object.keys(SEASONS[k].wx); if (ks.includes('typhoon')) ks.push('outer'); if (ks.includes('cold')) ks.push('monsoon', 'frost'); return [...new Set(ks)]; };
 
   // ---------- 工具 ----------
   const clone = o => JSON.parse(JSON.stringify(o));
@@ -238,7 +265,7 @@ const Sim = (() => {
   // farm：菜园收成倍率，不传就按当季（公园和屋顶菜园看季节，菜市场不看）
   const farmYield = t => t.t === 'ruin' || t.gutted ? FARM_FOOD : 1;
   const income = (s, farm) => {
-    if (farm == null) farm = s.start ? SEASONS[seasonOf(s)].farm : 1;
+    if (farm == null) farm = (s.start ? SEASONS[seasonOf(s)].farm : 1) * (s.wxNow === 'frost' ? 0 : 1);   // 下霜那天菜园没收成
     let food = 0, mat = 0;
     for (const t of owned(s)) {
       const f = eff(t).food || 0;
@@ -321,14 +348,14 @@ const Sim = (() => {
       for (const [a, b] of nbrs(x, y)) {
         const n = tile(s, a, b);
         if (n.camp && s.camp && s.camp.state === 'active') continue;   // 交好的营地替你挡住那一侧
-        if (!n.owned) { e++; w += 1 + 0.5 * Math.min(n.z, 4) + (n.scream && wx !== 'rain' ? 3 : 0) + (n.nest && !n.nest.sleep ? 2 : 0); }
+        if (!n.owned) { e++; w += 1 + 0.5 * Math.min(n.z, 4) + (n.scream && !MUTE.includes(wx) ? 3 : 0) + (n.nest && !n.nest.sleep ? 2 : 0); }
       }
       if (!e) continue;
       if (isBase(t)) w += 2;
       edges += e;
       fronts.push({ x, y, w, e });
     }
-    const screamers = wx === 'rain' ? 0 : coords(s).filter(([x, y]) => tile(s, x, y).scream && frontier(s, x, y)).length;   // 雨夜尖叫者引不来尸群
+    const screamers = MUTE.includes(wx) ? 0 : coords(s).filter(([x, y]) => tile(s, x, y).scream && frontier(s, x, y)).length;   // 大雨、雷雨夜尖叫者引不来尸群
     const nm = nestMult(s);
     const mult = Math.min(MULT_MAX, HORDE_BASE + 0.12 * Math.max(0, edges - 4) + 0.1 * screamers + nm + (s.city === 'airdrop' ? 0.06 : 0)) * (WX_NIGHT[wx] || 1);
     const [kl, kh] = wx === 'fog' ? [0.75, 1.25] : [1, 1];   // 雾夜：尸群多少说不准
@@ -359,7 +386,15 @@ const Sim = (() => {
       inj: 0, inf: 0, sulk: 0, task: { k: 'defend' }, trait: pick(s, Object.keys(TRAITS)), gear: null,
     };
     if (v.trait === 'bigeater') v.fight = Math.min(5, v.fight + 1);
+    skyOf(s, v);
     return v;
+  }
+
+  // 看天的本事和说话的口气：里长、菜贩、老人家多半看得准；老寒腿大家都知道准
+  function skyOf(s, v) {
+    const r = rand(s), old = /^老/.test(v.name) || ['里长', '菜贩', '退休警察'].includes(v.job);
+    v.sky = tr(v, 'knees') ? 2 : old ? (r < 0.5 ? 2 : r < 0.85 ? 1 : 0) : (r < 0.25 ? 2 : r < 0.65 ? 1 : 0);
+    v.bold = ri(s, 0, 2); v.rec = [0, 0];
   }
 
   const BASE = [1, 6];
@@ -422,55 +457,96 @@ const Sim = (() => {
   }
 
   // ---------- 天气 ----------
-  // 下一晚的天气：多半延续前一晚，不然按季节的天气表抽。台风第 5 天以后才来，两次之间至少隔 4 天，不会连着两晚
+  // 下一晚的天气：过程排好的先来（s.wxQ）；不然多半延续前一晚，再不然按季节的天气表抽。
+  // 抽到台风先来一晚外围环流；抽到寒流先刮一两晚东北季风；寒流走了一半会下霜。台风第 5 天以后才来，两次之间至少隔 4 天
   function nextWx(s, prev, day) {
-    const S = SEASONS[seasonOf(s, day)];
-    const ok = k => k !== 'typhoon' || (day >= 5 && day - (s.lastTy || -99) >= 4);
-    if (prev && prev !== 'typhoon' && rand(s) < S.stay) return prev;
-    const ks = Object.keys(S.wx).filter(ok), tot = ks.reduce((a, k) => a + S.wx[k], 0);
+    if (!s.wxQ) s.wxQ = [];
+    if (s.wxQ.length) return s.wxQ.shift();
+    const k = seasonOf(s, day), S = SEASONS[k];
+    if (prev && !['outer', 'typhoon', 'frost'].includes(prev) && rand(s) < S.stay) return prev;
+    if (prev === 'cold' && rand(s) < 0.5) return 'frost';
+    const ok = w => w !== 'typhoon' || (day >= 4 && day + 1 - (s.lastTy || -99) >= 4);
+    const ks = Object.keys(S.wx).filter(ok), tot = ks.reduce((a, w) => a + S.wx[w], 0);
     let r = rand(s) * tot, w = ks[0];
-    for (const k of ks) if ((r -= S.wx[k]) < 0) { w = k; break; }
-    if (w === 'typhoon') s.lastTy = day;
+    for (const x of ks) if ((r -= S.wx[x]) < 0) { w = x; break; }
+    if (w === 'typhoon') { s.lastTy = day + 1; s.wxQ.push('typhoon'); return 'outer'; }
+    if (w === 'cold' && prev !== 'monsoon' && prev !== 'cold') { if (rand(s) < 0.5) s.wxQ.push('monsoon'); s.wxQ.push('cold'); return 'monsoon'; }
     return w;
   }
-  // 看天象：真实天气按准确度 acc 冒出 n 条线索，看走眼的线索指向相邻的天气。楼长按线索猜（越专门的线索分量越重）。
-  // 收复了电台能听广播，全准；老寒腿的膝盖对下雨、台风、寒流（不管是真的来还是看错了）都准，只管今晚
-  function readSky(s, slot, n, acc, night, day) {
-    const S = SEASONS[seasonOf(s, day)], set = Object.keys(S.wx), sg = [];
-    if (slot.w === 'typhoon') acc = Math.max(acc, 0.9);   // 台风的征兆很明显
-    for (let i = 0; i < n; i++) {
-      const near = WX_NEAR[slot.w].filter(k => set.includes(k));
-      const lie = near.length && rand(s) >= acc ? pick(s, near) : null;
-      const cand = SIGNS.map((g, j) => j).filter(j => !sg.includes(j) && (lie ? SIGNS[j].w.includes(lie) && !SIGNS[j].w.includes(slot.w) : SIGNS[j].w.includes(slot.w)));
-      if (cand.length) sg.push(pick(s, cand));
+  // 住户看天：按各自的本事猜，猜对了引一条对得上的天象；猜错了要么把一条模棱两可的天象想歪了，要么干脆看走眼。
+  // 一般和准的人只会错成相邻的天气，瞎猜的人什么都说得出口。台风的征兆很明显，谁都比平时准。老寒腿变天时膝盖疼，不变天时也不会乱报变天
+  function guess(s, v, w, set, k) {
+    let acc = SKY_ACC[v.sky == null ? 1 : v.sky] * k;
+    if (w === 'typhoon' || w === 'outer') acc += (1 - acc) * 0.6;
+    const knee = tr(v, 'knees') && k === 1;
+    let g = w;
+    if (!(knee && KNEE_WX.includes(w)) && rand(s) >= acc) {
+      const near = WX_NEAR[w].filter(x => set.includes(x)), any = set.filter(x => x !== w);
+      g = v.sky === 0 && any.length ? pick(s, any) : pick(s, near.length ? near : WX_NEAR[w]);
+      if (knee && KNEE_WX.includes(g)) g = w;
     }
-    const score = k => sg.reduce((a, j) => a + (SIGNS[j].w.includes(k) ? 1 / SIGNS[j].w.length : 0), 0) + S.wx[k] * 0.001;
-    slot.sg = sg; slot.src = null;
-    slot.g = set.reduce((a, k) => score(k) > score(a) ? k : a, set[0]);
-    const knee = night && s.surv.find(v => tr(v, 'knees'));
-    if (s.city !== 'noradio' && owned(s).some(t => eff(t).radio)) { slot.g = slot.w; slot.src = 'radio'; }
-    else if (knee && (KNEE_WX.includes(slot.w) || KNEE_WX.includes(slot.g))) { slot.g = slot.w; slot.src = knee.name; }
+    const both = SIGNS.map((x, j) => j).filter(j => SIGNS[j].w.includes(g) && SIGNS[j].w.includes(w));
+    const only = SIGNS.map((x, j) => j).filter(j => SIGNS[j].w.includes(g) && (g === w || !SIGNS[j].w.includes(w)));
+    const sg = g !== w && both.length && rand(s) < 0.5 ? pick(s, both) : only.length ? pick(s, only) : both.length ? pick(s, both) : -1;
+    return { id: v.id, g, sg, b: v.bold || 0 };
+  }
+  const recScore = v => v ? ((v.rec ? v.rec[0] : 0) + 1) / ((v.rec ? v.rec[1] : 0) + 2) + (tr(v, 'knees') ? 0.05 : 0) : 0;
+  // 早上谁开口：今晚两三个人各说各的（老寒腿每天都说），明晚只有一个人随口一提。收复电台（电塔没倒）能听广播，全准。
+  // 楼长默认听战绩最好的人；界面上可以改听别人的（trustWx）
+  function readSky(s, slot, day, night) {
+    const set = wxSet(seasonOf(s, day));
+    const pool = s.surv.slice(), who = [];
+    const knee = night && pool.find(v => tr(v, 'knees'));
+    if (knee) who.push(knee);
+    const n = night ? Math.min(pool.length, s.surv.length >= 6 ? 3 : 2) : Math.min(pool.length, 1);
+    while (who.length < n) { const rest = pool.filter(v => !who.includes(v)); who.push(pick(s, rest)); }
+    slot.say = who.map(v => guess(s, v, slot.w, set, night ? 1 : 0.8));
+    slot.radio = s.city !== 'noradio' && owned(s).some(t => eff(t).radio);
+    slot.pick = slot.say.reduce((a, o, i) => recScore(byId(s, o.id)) > recScore(byId(s, slot.say[a].id)) ? i : a, 0);
+    slot.g = slot.radio ? slot.w : slot.say.length ? slot.say[slot.pick].g : 'cloudy';
+    slot.src = slot.radio ? 'radio' : null;
   }
   function initWx(s) {
+    s.wxQ = [];
     s.wxNow = nextWx(s, null, s.day - 1);
     const w0 = nextWx(s, s.wxNow, s.day), w1 = nextWx(s, w0, s.day + 1);
     s.wx = [{ w: w0 }, { w: w1 }];
-    readSky(s, s.wx[0], 2, 0.75, true, s.day); readSky(s, s.wx[1], 1, 0.6, false, s.day + 1);
+    readSky(s, s.wx[0], s.day, true); readSky(s, s.wx[1], s.day + 1, false);
   }
-  // 早上：昨晚的天气延续到今天白天，往后推一晚，重新看天象
+  // 早上：昨晚的天气延续到今天白天，往后推一晚，重新听大家怎么说
   function rollWx(s) {
     s.wxNow = s.wx[0].w;
     s.wx = [{ w: s.wx[1].w }, { w: nextWx(s, s.wx[1].w, s.day + 1) }];
-    readSky(s, s.wx[0], 2, 0.75, true, s.day); readSky(s, s.wx[1], 1, 0.6, false, s.day + 1);
+    readSky(s, s.wx[0], s.day, true); readSky(s, s.wx[1], s.day + 1, false);
   }
-  // 给界面：现在的天气、今晚和明晚的天象与判断。conf：sure 有广播或膝盖，likely 两条线索都对得上，maybe 说不准
+  // 今晚改听谁的
+  function trustWx(s0, i) {
+    const s = clone(s0), slot = s.wx && s.wx[0];
+    if (!slot || slot.radio || !slot.say[i]) return s0;
+    slot.pick = i; slot.g = slot.say[i].g;
+    return s;
+  }
+  // 夜里揭晓：给今晚开过口的人记战绩
+  function scoreSky(s, wx) {
+    const right = [], wrong = [];
+    for (const o of s.wx[0].say) {
+      const v = byId(s, o.id);
+      if (!v) continue;
+      v.rec = v.rec || [0, 0];
+      v.rec[1]++;
+      if (o.g === wx) { v.rec[0]++; right.push(v.name); } else wrong.push(v.name);
+    }
+    return { right, wrong };
+  }
+  const flooded = s => s.flood === s.day;
+  // 给界面：现在的天气、今晚和明晚大家的说法
   function forecast(s) {
     if (!s.wx) return null;
-    const one = (slot, night) => ({
-      g: slot.g, src: slot.src, signs: slot.sg.map(j => SIGNS[j].txt),
-      conf: slot.src ? 'sure' : night && slot.sg.length > 1 && slot.sg.every(j => SIGNS[j].w.includes(slot.g)) ? 'likely' : 'maybe',
+    const one = slot => ({
+      g: slot.g, radio: !!slot.radio, pick: slot.pick,
+      say: slot.say.map(o => { const v = byId(s, o.id); return { id: o.id, name: v ? v.name : '?', g: o.g, sign: o.sg >= 0 ? SIGNS[o.sg].txt : '', b: o.b, rec: v && v.rec ? v.rec.slice() : [0, 0], knee: !!(v && tr(v, 'knees')) }; }),
     });
-    return { now: s.wxNow, tonight: one(s.wx[0], true), next: one(s.wx[1], false) };
+    return { now: s.wxNow, flood: flooded(s), tonight: one(s.wx[0]), next: one(s.wx[1]) };
   }
 
   // opt.season 直接指定开局季节（脚本用）；不然开局先选季节
@@ -582,6 +658,7 @@ const Sim = (() => {
     if (v.trait === 'bigeater') v.fight--;
     v.trait = trait;
     if (trait === 'bigeater') v.fight = Math.min(5, v.fight + 1);
+    if (trait === 'knees') v.sky = 2;
     return v;
   }
   const related = (s, a, b) => s.rel.some(r => (r[0] === a && r[1] === b) || (r[0] === b && r[1] === a));
@@ -645,7 +722,7 @@ const Sim = (() => {
   // defend / fortify 不带坐标 = 据点；带坐标 = 那块已收复的地
   // 脚踏车：离地盘两格以内都能去
   const near2 = (s, x, y) => s.tiles.some((t, i) => t.owned && Math.abs(i % W - x) + Math.abs(Math.floor(i / W) - y) <= 2);
-  const bikeReach = (s, v, x, y) => gear(v, 'bike') && !storm(s) && near2(s, x, y);
+  const bikeReach = (s, v, x, y) => gear(v, 'bike') && !storm(s) && !flooded(s) && near2(s, x, y);
   const nestReach = (s, x, y) => { const n = tile(s, x, y).nest; return !!(n && n.found) && (storm(s) ? frontier(s, x, y) : near2(s, x, y)); };   // 端巢是远征：离地盘两格以内就能直接杀过去（台风天只能打相邻的）
   const canGo = (s, v, x, y) => reachable(s, x, y) || bikeReach(s, v, x, y);
 
@@ -685,7 +762,7 @@ const Sim = (() => {
   const scavRisk0 = (z, fight) => z > 0 ? clamp(0.07 * z - 0.03 * fight, 0.03, 0.6) : 0;
   const clearRisk0 = (z, fight) => clamp(0.06 * z - 0.04 * fight, 0.03, 0.55);
   const luck = v => tr(v, 'lucky') ? 0.7 : 1;
-  const scavRisk = (s, v, z, fight = v.fight) => scavRisk0(z, fight) * luck(v) * (tr(v, 'coward') ? 0.5 : 1) * (has(s, 'scout') ? 0.6 : 1) * (gear(v, 'bike') ? 0.7 : 1) * (s.wxNow === 'rain' ? 0.7 : 1);
+  const scavRisk = (s, v, z, fight = v.fight) => scavRisk0(z, fight) * luck(v) * (tr(v, 'coward') ? 0.5 : 1) * (has(s, 'scout') ? 0.6 : 1) * (gear(v, 'bike') ? 0.7 : 1) * (s.wxNow === 'rain' ? 0.7 : s.wxNow === 'drizzle' || s.wxNow === 'outer' ? 0.85 : 1);
   const clearRisk = (s, v, z, fight = v.fight) => Math.min(0.8, clearRisk0(z, fight) * luck(v) * (tr(v, 'hothead') ? 1.5 : 1) * (gear(v, 'axe') ? 0.5 : 1) * (s.wxNow === 'heat' ? 0.6 : 1));
   const stripYield = (s, v) => Math.ceil((Math.max(1, v.build) + 2) * (has(s, 'permit') ? 1.5 : 1)) + (gear(v, 'crowbar') ? 3 : 0);
   const fortGain = (s, v) => 1 + (v.build >= 4 ? 1 : 0) + (tr(v, 'handy') ? 1 : 0) + (has(s, 'sandbag') ? 1 : 0);
@@ -700,7 +777,7 @@ const Sim = (() => {
     if (k === 'scav') {
       const n = Math.max(1, Math.round((scavCount(s, v) + 1) * wxWork(s))), tot = t.food + t.mat, f = tot ? Math.round(Math.min(n, tot) * t.food / tot) : 0;
       const cb = gear(v, 'crowbar') && tot > 0 ? 2 : 0;
-      return { gain: `约 +${f} 食物 +${Math.min(n, tot) - f} 材料${cb ? `，撬柜子再 +${cb}` : ''}${t.gear.length ? `，带回${gearNames(t.gear)}` : ''}${reachable(s, x, y) ? '' : '（骑车去）'}`, risk: scavRisk(s, v, t.z) };
+      return { gain: `约 +${f} 食物 +${Math.min(n, tot) - f + (flooded(s) ? 1 : 0)} 材料${cb ? `，撬柜子再 +${cb}` : ''}${t.gear.length ? `，带回${gearNames(t.gear)}` : ''}${reachable(s, x, y) ? '' : '（骑车去）'}`, risk: scavRisk(s, v, t.z) };
     }
     if (k === 'clear') {
       const ex = killBonus(v), k = wxWork(s);
@@ -873,6 +950,7 @@ const Sim = (() => {
             n--;
           }
           if (gear(v, 'crowbar')) { const bf = rand(s) < 0.5 ? 1 : 0; gf += 1 + bf; gm += 1 - bf; }   // 撬开锁着的柜子：不占这块地的存货
+          if (flooded(s)) gm++;   // 淹水后漂来的木板、铁皮
           const T = eff(t);
           if (T.recruit && s.surv.length < beds(s) && rand(s) < T.recruit * (tr(v, 'charmer') ? 2 : 1)) {
             const nv = recruit(s);
@@ -933,14 +1011,18 @@ const Sim = (() => {
         L(`断粮了。${v.name}半夜收拾东西走了。`, 'bad');
       }
     } else s.hunger = 0;
-    if (s.wxNow === 'rain') {
-      const extra = s.food - s.surv.length * 4;
-      if (extra > 0) { const rot = Math.max(1, Math.floor(extra * 0.2)); s.food -= rot; L(`下了一天雨，${rot} 份存粮发霉了。`); }
+    if (s.wxNow === 'rain' || s.wxNow === 'humid') {   // 发霉：大雨天超过每人 4 份的两成，回南天超过每人 2 份的一成半
+      const [per, k] = s.wxNow === 'rain' ? [4, 0.2] : [2, 0.15], extra = s.food - s.surv.length * per;
+      if (extra > 0) { const rot = Math.max(1, Math.floor(extra * k)); s.food -= rot; L(`${s.wxNow === 'rain' ? '下了一天大雨' : '回南天到处湿答答'}，${rot} 份存粮发霉了。`); }
     }
 
     // 夜袭：逐块结算
     const plan = nightPlan(s, true), wx = plan.wx;
-    if (wx) L(WX_NIGHT_TXT[wx] + (wx !== s.wx[0].g && !s.wx[0].src ? `跟早上看天猜的${WX[s.wx[0].g].name}不一样。` : ''), wx === s.wx[0].g ? 'info' : 'bad');
+    if (wx) {
+      const sc = scoreSky(s, wx), who = s.wx[0].radio ? null : byId(s, (s.wx[0].say[s.wx[0].pick] || {}).id);
+      L(WX_NIGHT_TXT[wx] + (wx !== s.wx[0].g ? `跟早上听${who ? who.name : '来'}的${WX[s.wx[0].g].name}不一样。` : '') +
+        (sc.right.length ? `${sc.right.join('、')}说中了。` : sc.wrong.length ? '早上开口的人都没说中。' : ''), wx === s.wx[0].g ? 'info' : 'bad');
+    }
     if (plan.surge) L('入夜，整条街都是脚步声。尸潮来了。', 'bad');
     if (s.brute) L('尸群里混着几个巨汉，路障在它们面前像纸一样。', 'bad');
     let held = 0;
@@ -975,6 +1057,16 @@ const Sim = (() => {
       for (const t of owned(s)) if (!isBase(t) && t.bar > 0) { t.bar--; n++; }
       for (const t of s.tiles) if (!t.owned && !t.camp && !t.nest && t.z > 0 && rand(s) < 0.3) t.z--;
       L(`台风刮了一整夜，${n ? `${n} 处路障被吹垮了一层，` : ''}街上的丧尸也被吹散了一些。`, n ? 'bad' : 'info');
+      s.flood = s.day + 2;   // 台风天过完，第二天淹水
+    }
+    // 雷雨夜：雷可能打中街上哪一栋，烧掉丧尸和存货；打中自己的楼就烧掉一点材料
+    if (wx === 'thunder' && rand(s) < 0.3) {
+      const cand = coords(s).filter(([x, y]) => !isBase(tile(s, x, y)) && !tile(s, x, y).camp);
+      if (cand.length) {
+        const [x, y] = pick(s, cand), t = tile(s, x, y), nm = `${TYPES[t.t].name}（${x + 1},${y + 1}）`;
+        if (t.owned) { const n = Math.min(s.mat, 2); s.mat -= n; L(`雷打中了${tname(t)}，屋顶烧了一角${n ? `，烧掉 ${n} 份材料` : ''}。`, 'bad'); }
+        else { t.z = t.nest ? t.z : 0; t.food = Math.floor(t.food / 2); t.mat = Math.floor(t.mat / 2); t.seen = true; L(`一道雷劈在${nm}，烧了半夜。${t.nest ? '巢没烧掉，' : '那里的丧尸烧光了，'}存货也烧掉一半。`, 'info'); }
+      }
     }
     // 寒流：每 2 人烧 1 份材料取暖，不够就有人冻病
     if (wx === 'cold' && s.surv.length) {
@@ -1084,8 +1176,8 @@ const Sim = (() => {
     }
 
 
-    // 偶尔冒出新的尖叫者（最多三只，满街尖叫最多五只；雨夜不会冒出来）
-    const screamCap = wx === 'rain' ? 0 : s.city === 'screams' ? 5 : 3;
+    // 偶尔冒出新的尖叫者（最多三只，满街尖叫最多五只；大雨、雷雨夜不会冒出来）
+    const screamCap = MUTE.includes(wx) ? 0 : s.city === 'screams' ? 5 : 3;
     if (coords(s).filter(([x, y]) => tile(s, x, y).scream).length < screamCap && rand(s) < (s.city === 'screams' ? 0.1 : 0.05)) {
       const all = coords(s).filter(([x, y]) => { const t = tile(s, x, y); return !t.owned && !t.scream && !t.camp && !t.nest && t.z >= 3; });
       const near = all.filter(([x, y]) => nearNest(s, x, y, 1)), cand = near.length ? near : all;   // 多半是从尸巢里爬出来的
@@ -1682,12 +1774,17 @@ const Sim = (() => {
       delete s.nestDay;
       if (s.event && s.event.id === 'season') delete s.event.p.unlocked;
     }
+    if (s.v < 13) { // v12 → v13：住户各自看天，记战绩；天气过程
+      for (const v of s.surv) if (v.sky == null) skyOf(s, v);
+      s.wxQ = [];
+      if (s.wx) { readSky(s, s.wx[0], s.day, true); readSky(s, s.wx[1], s.day + 1, false); }
+    }
     s.v = VERSION;
     return s;
   }
 
   return {
-    VERSION, W, H, SEASON_LEN, FARM_FOOD, TILL, farmYield, WX, SEASONS, SEASON_ORDER, seasonOf, forecast, selfFed, landing, INF_DAYS, NEST_R, NEST_HORDE, HORDE_BASE, nestHp, nestLv, nestZ, nestHint, FORT_MAX, BAR_MAX, TYPES, TRAITS, RULES, CITIES, ORIGINS, GEAR, equip, useMedkit, bikeReach, nestReach, canGo, craftCost, barMax, foodUse, has, surgeEvery, surgeIn,
+    VERSION, W, H, SEASON_LEN, FARM_FOOD, TILL, farmYield, WX, FLOOD_TXT, KNEE_WX, trustWx, SEASONS, SEASON_ORDER, seasonOf, forecast, selfFed, landing, INF_DAYS, NEST_R, NEST_HORDE, HORDE_BASE, nestHp, nestLv, nestZ, nestHint, FORT_MAX, BAR_MAX, TYPES, TRAITS, RULES, CITIES, ORIGINS, GEAR, equip, useMedkit, bikeReach, nestReach, canGo, craftCost, barMax, foodUse, has, surgeEvery, surgeIn,
     newGame, endDay, setTask, canDo, preview, resolveEvent, eventView,
     nightPlan, tileDefense, horde, beds, income, owned, tile, reachable, frontier, byId, ready, score, eff, tname,
     arrivalChance, serialize, deserialize, SKILL,

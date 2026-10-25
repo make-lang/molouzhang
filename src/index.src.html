@@ -167,6 +167,8 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
 .cards.four { grid-template-columns: repeat(4, 1fr); } .cards.four .card { min-height: 0; padding: 8px; gap: 4px; }
 .box.wx { display: flex; flex-direction: column; gap: 4px; border-color: #74a6dc; margin-bottom: 6px; }
 .wxl { display: flex; gap: 6px; align-items: flex-start; } .wxl img.ic { flex-shrink: 0; margin-top: 1px; }
+.say { display: flex; gap: 6px; align-items: flex-start; text-align: left; width: 100%; padding: 3px 5px; border: 1px solid transparent; background: none; color: inherit; font: inherit; cursor: pointer; }
+.say img.ic { flex-shrink: 0; margin-top: 1px; } .say:hover:not(:disabled) { border-color: var(--edge-hi); } .say.sel { border-color: #74a6dc; } .say:disabled { cursor: default; opacity: .75; }
 .card { display: flex; flex-direction: column; gap: 6px; padding: 10px; min-height: 150px; text-align: left; }
 .card .ln { align-self: flex-start; padding: 0 3px; border: 1px solid currentColor; line-height: 12px; }
 .card b { font-weight: 400; color: var(--amber); }
@@ -265,6 +267,13 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     heat:    ['...r....', '.r.y.r..', '..yyy...', 'ryYYYyr.', '..yyy...', '.r.y.r..', '...r....', '........'],
     typhoon: ['.cccc...', 'c....c..', 'c.cc..c.', 'c.c.c.c.', 'c..cc.c.', '.c....c.', '..cccc..', '........'],
     cold:    ['...i....', '.i.i.i..', '..iii...', 'iiiiiii.', '..iii...', '.i.i.i..', '...i....', '........'],
+    drizzle: ['..ooo...', '.ooooo..', 'ooooooo.', '........', '..c...c.', '........', '.c...c..', '........'],
+    thunder: ['..ooo...', '.ooooo..', 'ooooooo.', '...yy...', '..yy....', '...yy...', '..y.....', '........'],
+    humid:   ['...c....', '..ccc...', '.ccccc..', '.ccicc..', '..ccc...', '........', 'c..c..c.', '........'],
+    outer:   ['wwww....', '....w...', 'wwwww.c.', '.....c..', 'www.c...', '...c....', '........', '........'],
+    monsoon: ['........', 'iiiii...', '.....i..', 'iiiiiii.', '.......i', 'iiii..i.', '........', '........'],
+    frost:   ['........', '.w.w.w..', '..www...', '.wwwww..', '..www...', '.w.w.w..', '........', 'iiiiiiii'],
+    flood:   ['........', '........', '.cc..cc.', 'c..cc..c', '........', '.cc..cc.', 'c..cc..c', '........'],
   };
   const PAL = { '#': '#c9c2ad', o: '#8b91a3', y: '#f0b04a', Y: '#ffd88a', b: '#9c6420', B: '#c88a3e', w: '#ebe4cf', g: '#8a93a8', z: '#a9c843', k: '#ea92b2', r: '#e2654b', c: '#74a6dc', i: '#cfe3f2' };
   // 8×8 的底稿用 Scale2x 放大成 16×16：斜边变顺，不是简单的方块放大；再给下边缘压一圈暗色当投影
@@ -664,20 +673,31 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
       px(ox + a + (a ? o : -o), oy + b + (b ? o : -o), w, h, col);
   }
   function frameIn(ox, oy, c) { px(ox, oy, TS, 1, c); px(ox, oy + TS - 1, TS, 1, c); px(ox, oy, 1, TS, c); px(ox + TS - 1, oy, 1, TS, c); }
-  // 今天白天的天气：雨丝、台风的斜雨、飘过的雾带、热浪的暖色、寒流的冷色和细雪
+  // 今天白天的天气：雨丝、台风的斜雨、飘过的雾带、热浪的暖色、寒流的冷色和细雪、季风的风痕、霜、回南天的水珠；台风过后的积水
   function weather(tk) {
     const w = S.wxNow, still = REDUCED ? 0 : 1;
-    if (w === 'rain' || w === 'typhoon') {
-      const big = w === 'typhoon', n = big ? 150 : 70;
-      if (big) px(0, 0, 384, 384, 'rgba(8,12,22,.22)');
-      ctx.globalAlpha = big ? 0.42 : 0.28;
+    if (w === 'thunder' && still && tk % 11 === 0) px(0, 0, 384, 384, 'rgba(235,240,255,.18)');   // 闪电
+    if (['drizzle', 'rain', 'thunder', 'outer', 'typhoon'].includes(w)) {
+      const big = w === 'typhoon' || w === 'outer', n = { drizzle: 35, rain: 100, thunder: 80, outer: 90, typhoon: 150 }[w];
+      if (big || w === 'thunder') px(0, 0, 384, 384, w === 'typhoon' ? 'rgba(8,12,22,.22)' : 'rgba(8,12,22,.10)');
+      ctx.globalAlpha = w === 'typhoon' ? 0.42 : w === 'drizzle' ? 0.2 : 0.3;
       for (let i = 0; i < n; i++) {
         const sx = Math.floor(hash(i, 7, 500) * 384), sy = Math.floor(hash(i, 9, 501) * 384), off = still * (tk * (big ? 37 : 23)) % 384;
         const yy = (sy + off) % 384, xx = (sx - Math.floor(off / (big ? 1.4 : 3)) + 384) % 384;
         if (big) { px(xx, yy, 1, 3, '#b8c8e0'); px(xx - 1, yy + 3, 1, 3, '#b8c8e0'); px(xx - 2, yy + 6, 1, 2, '#b8c8e0'); }
+        else if (w === 'drizzle') px(xx, yy, 1, 2, '#9fb2cf');
         else { px(xx, yy, 1, 5, '#9fb2cf'); px(xx - 1, yy + 5, 1, 2, '#9fb2cf'); }
       }
       ctx.globalAlpha = 1;
+    } else if (w === 'humid') {
+      px(0, 0, 384, 384, 'rgba(120,170,190,.08)');
+      for (let i = 0; i < 60; i++) { const yy = (Math.floor(hash(i, 4, 640) * 384) + still * Math.floor(tk / 3) * (i % 3)) % 384; px(Math.floor(hash(i, 5, 641) * 384), yy, 1, 2, 'rgba(170,210,230,.45)'); }
+    } else if (w === 'monsoon') {
+      px(0, 0, 384, 384, 'rgba(110,140,190,.06)');
+      for (let i = 0; i < 14; i++) { const y = Math.floor(hash(i, 2, 650) * 384), x = (Math.floor(hash(i, 3, 651) * 520) - still * tk * (6 + i % 4) % 520 + 520) % 520 - 80; px(x, y, 30 + i % 3 * 10, 1, 'rgba(225,235,245,.20)'); }
+    } else if (w === 'frost') {
+      px(0, 0, 384, 384, 'rgba(215,230,245,.10)');
+      for (let i = 0; i < 90; i++) px(Math.floor(hash(i, 6, 660) * 384), Math.floor(hash(i, 7, 661) * 384), 1, 1, 'rgba(240,246,252,.6)');
     } else if (w === 'fog') {
       px(0, 0, 384, 384, 'rgba(170,178,190,.10)');
       for (let i = 0; i < 12; i++) {   // 一条条雾带慢慢往右飘
@@ -687,7 +707,12 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     } else if (w === 'heat') {
       px(0, 0, 384, 384, 'rgba(255,160,70,.07)');
       if (still) for (let i = 0; i < 8; i++) { const y = (Math.floor(hash(i, 6, 620) * 384) - tk * 2 + 3840) % 384; px(Math.floor(hash(i, 7, 621) * 340), y, 24, 1, 'rgba(255,230,180,.10)'); }
-    } else if (w === 'cold') {
+    }
+    if (S.flood === S.day) {   // 台风过后淹水：一层浑水，水波慢慢晃
+      px(0, 0, 384, 384, 'rgba(70,95,110,.16)');
+      for (let i = 0; i < 24; i++) { const x = Math.floor(hash(i, 8, 670) * 360) + (still ? Math.round(Math.sin((tk + i * 7) / 4) * 2) : 0); px(x, Math.floor(hash(i, 9, 671) * 384), 10, 1, 'rgba(190,210,220,.22)'); }
+    }
+    if (w === 'cold') {
       px(0, 0, 384, 384, 'rgba(110,150,215,.10)');
       for (let i = 0; i < 45; i++) {
         const sx = Math.floor(hash(i, 8, 630) * 384), sy = Math.floor(hash(i, 2, 631) * 384), off = still * tk * 3;
@@ -783,15 +808,18 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     $('b-new').onclick = () => { mode = 'new'; renderOverlay(); };
   }
 
-  // 天气：猜的把握。sure 是广播或膝盖，likely 两条天象都对得上
+  // 天气：住户各说各的。b 是说话的口气（跟准不准无关），老寒腿变天时会说膝盖疼
   const WXN = k => Sim.WX[k].name;
-  const sayWx = (f, night) => f.conf === 'sure' ? `${f.src === 'radio' ? '广播说' : `${f.src}的膝盖说`}是${WXN(f.g)}` : night && f.conf === 'likely' ? `多半是${WXN(f.g)}` : `${night ? '说不准，像是' : '可能是'}${WXN(f.g)}`;
-  const SEASON_IC = { early: 'fog', spring: 'sunny', plum: 'rain', summer: 'heat', autumn: 'typhoon', late: 'cloudy', winter: 'cold' };
+  const QUOTE = [(n, sg) => `${sg}，今晚大概会${n}吧，我也说不准。`, (n, sg) => `${sg}，今晚应该是${n}。`, (n, sg) => `${sg}，今晚肯定${n}，错不了！`];
+  const quote = (o, when = '今晚') => (o.knee ? (Sim.KNEE_WX.includes(o.g) ? '膝盖疼得厉害，要变天了。' : '膝盖不疼。') : '') + QUOTE[o.b](WXN(o.g), o.sign || '我看天色').replace('今晚', when);
+  const whoSaid = f => f.radio ? '广播' : f.say[f.pick] ? f.say[f.pick].name : '';
+  const recTxt = r => r[1] ? `看天 ${r[0]}/${r[1]}` : '还没说过天气';
+  const SEASON_IC = { early: 'fog', spring: 'sunny', plum: 'rain', summer: 'heat', autumn: 'typhoon', late: 'monsoon', winter: 'cold' };
   function wxHud() {
     const F = Sim.forecast(S);
     if (!F) return '';
-    const g = F.tonight, pre = g.conf === 'sure' ? '' : g.conf === 'likely' ? '多半' : '像是';
-    return `<span class="res" title="今天白天：${WXN(F.now)}。${Sim.WX[F.now].day}\n今晚：${sayWx(g, true)}。${Sim.WX[g.g].night}\n点“今晚”分页看天象。">${ic(F.now, WXN(F.now))}${WXN(F.now)}<small>·今晚${pre}${WXN(g.g)}${g.conf === 'maybe' ? '?' : ''}</small></span>`;
+    const g = F.tonight;
+    return `<span class="res" title="今天白天：${WXN(F.now)}。${Sim.WX[F.now].day}${F.flood ? '\n' + Sim.FLOOD_TXT : ''}\n今晚听${whoSaid(g)}的：${WXN(g.g)}。${Sim.WX[g.g].night}\n点“今晚”分页看大家怎么说。">${ic(F.flood ? 'flood' : F.now, WXN(F.now))}${WXN(F.now)}${F.flood ? '·淹水' : ''}<small>·今晚${WXN(g.g)}${g.radio ? '' : '?'}</small></span>`;
   }
 
   function renderPeople() {
@@ -800,7 +828,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     box.innerHTML = S.surv.map(v => {
       const tt = taskText(v), out = !Sim.ready(v);
       const T2 = Sim.TRAITS[v.trait];
-      return `<button class="pc${v.id === selSurv ? ' sel' : ''}${out ? ' out' : ''}" data-id="${v.id}" aria-pressed="${v.id === selSurv}" title="${v.job} · ${T2 ? T2.name + '：' + T2.desc : ''}${v.gear ? ' · 带着' + Sim.GEAR[v.gear].name : ''}">
+      return `<button class="pc${v.id === selSurv ? ' sel' : ''}${out ? ' out' : ''}" data-id="${v.id}" aria-pressed="${v.id === selSurv}" title="${v.job} · ${T2 ? T2.name + '：' + T2.desc : ''}${v.gear ? ' · 带着' + Sim.GEAR[v.gear].name : ''} · ${recTxt(v.rec || [0, 0])}">
         <canvas width="36" height="36" data-pid="${v.id}"></canvas>
         <span class="nm"><b>${v.name}</b>${T2 ? `<span class="trait">${T2.name}</span>` : `<span>${v.job}</span>`}</span>
         <span class="sk">${ic('fist', '战斗')}<em>${v.fight}</em>${ic('bag', '搜刮')}<em>${v.scav}</em>${ic('ham', '建造')}<em>${v.build}</em><span class="job">${v.job}</span></span>
@@ -869,6 +897,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     body.querySelectorAll('[data-heal]').forEach(b => b.onclick = () => commit(Sim.useMedkit(S, +b.dataset.heal)));
     body.querySelectorAll('[data-craft]').forEach(b => b.onclick = () => commit(Sim.setTask(S, selSurv, { k: 'craft', item: b.dataset.craft })));
     body.querySelectorAll('[data-fx]').forEach(b => b.onclick = () => { selTile = { x: +b.dataset.fx, y: +b.dataset.fy }; tab = 'tile'; render(); });
+    body.querySelectorAll('[data-trust]').forEach(b => b.onclick = () => commit(Sim.trustWx(S, +b.dataset.trust)));
   }
 
   const meter = (def, lo, hi) => { const max = Math.max(hi, def) + 2; return `<span class="bar2"><span class="d" style="width:${def / max * 100}%"></span><span class="t" style="left:${lo / max * 100}%;width:${Math.max(1, hi - lo) / max * 100}%"></span></span>`; };
@@ -1003,11 +1032,14 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
   function wxBox() {
     const F = Sim.forecast(S);
     if (!F) return '';
-    const signs = f => f.signs.length ? f.signs.map(x => `「${x}」`).join('') : '看不出什么';
-    const line = (label, f, night) => `<div class="wxl">${ic(f.g)}<span><span class="c-amber">${label}：${sayWx(f, night)}</span>${f.src === 'radio' ? '' : ` <span class="dim">${signs(f)}</span>`}${night ? `<br>${Sim.WX[f.g].night}` : ''}</span></div>`;
-    return `<div class="box wx"><div class="wxl">${ic(F.now)}<span><span class="c-amber">白天：${WXN(F.now)}</span><br>${Sim.WX[F.now].day}</span></div>
-      ${line('今晚', F.tonight, true)}${line('明晚', F.next, false)}
-      <span class="dim">${F.tonight.conf === 'sure' ? '' : '天象是看出来的，可能看走眼，不过只会错成相近的天气。'}今晚的天气会延续到明天白天。</span></div>`;
+    const T = F.tonight, N = F.next;
+    const says = T.say.map((o, i) => `<button class="say${!T.radio && i === T.pick ? ' sel' : ''}" data-trust="${i}"${T.radio ? ' disabled' : ''} aria-pressed="${!T.radio && i === T.pick}">${ic(o.g)}<span><b>${o.name}</b> <span class="dim">${recTxt(o.rec)}</span><br>「${quote(o)}」</span></button>`).join('');
+    const nx = N.radio ? `广播：明晚${WXN(N.g)}。` : N.say[0] ? `${N.say[0].name}随口一提：「${quote(N.say[0], '明晚')}」` : '';
+    return `<div class="box wx"><div class="wxl">${ic(F.now)}<span><span class="c-amber">白天：${WXN(F.now)}</span><br>${Sim.WX[F.now].day}${F.flood ? '<br>' + Sim.FLOOD_TXT : ''}</span></div>
+      <div class="wxl">${ic(T.g)}<span><span class="c-amber">今晚${T.radio ? `：广播说是${WXN(T.g)}` : `：听${whoSaid(T)}的，按${WXN(T.g)}准备`}</span><br>${Sim.WX[T.g].night}</span></div>
+      ${says}
+      <div class="wxl">${ic(N.g)}<span class="dim">${nx}</span></div>
+      <span class="dim">${T.radio ? '有广播就不用猜了。' : '各人看天的本事不一样，口气硬不代表准。点一个人，今晚就按他说的估算。'}</span></div>`;
   }
 
   function logHtml() {
@@ -1059,7 +1091,8 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
         <li>边界街区守不住就会丢，和据点断开的地块也会一起丢。据点守不住会撞坏铁门，铁门撞开就输了。</li>
         <li>清干净的街区可以花几天收复，长期提供床位、食物或防御；也可以拆掉，一次换一大笔材料。</li>
         <li>开局先选城里的情况，再选你以前是做什么的。两样都会改变这一局的打法，每次三选一。</li>
-        <li>天气：每晚的天气早就定了，白天只能看天象猜（“今晚”分页和顶栏），可能看走眼，但只会错成相近的天气。雨天搜刮安全、存粮发霉；雾里看不清丧尸；酷暑白天好清理、夜里尸群多；台风夜尸群少、路障掉一层，第二天只能去相邻的街区；寒流夜尸群少但要烧材料取暖。今晚的天气会延续到明天白天。收复电台能听广播，预报就准了；特质“老寒腿”的人对下雨、台风、寒流也很准。</li>
+        <li>天气：每晚的天气早就定了。每天早上有两三个人说说今晚会是什么天、看到了什么天象（“今晚”分页），各人看天的本事不一样，说话有没有把握跟准不准无关；楼长默认听战绩最好的人，也可以点别人改听他的，夜里的估算就按听的那个来。记事里会记谁说中了，住户卡片的提示里也有战绩。看错的人多半错成相近的天气，瞎猜的人就不一定了。收复电台能听广播，全准；特质“老寒腿”的人看天准，变天时膝盖还会疼。</li>
+        <li>天气有 13 种：大雨天搜刮安全、存粮发霉，雷雨和大雨夜尖叫者叫不响，雷还可能劈中街上的楼；回南天存粮发霉得更凶；雾里看不清丧尸；酷暑白天好清理、夜里尸群多；寒流夜尸群少但要烧材料取暖，走了常常下霜，那天菜园没收成。有的天气是一段过程：外围环流之后一定是台风（尸群少、路障掉一层，第二天只能去相邻的街区），台风过后淹水一天（漂来材料、骑不了车）；东北季风刮起来，寒流多半跟着来。今晚的天气会延续到明天白天。</li>
         <li>季节一年七个：初春、春末、梅雨、盛夏、秋老虎、深秋、寒冬，每季 9 天，开局自己选从哪个季节开始。季节决定多半是什么天气，也决定菜园的收成：初春、深秋减半，寒冬种不出东西。</li>
         <li>没有时间限制。地图上的物资搜光就没了，长久下去要靠菜园：自己地盘里的楼都能开垦，废墟和拆过的楼能种一整片。尸群到一定程度就不会再涨，但尸巢会一个个醒过来。怎么样才算熬出头，要你自己去找。</li>
         <li>存粮够、还有空床，会有人来投奔。通常每 7 天一次尸潮。</li>
