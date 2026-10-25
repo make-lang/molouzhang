@@ -119,11 +119,11 @@ const Sim = (() => {
   const LAWS = {
     ration:     { pair: '吃饭', name: '统一配给', yes: ['fair', 'order'], no: ['real', 'brave'], desc: '每天吃的少两成五。人人都觉得吃不饱。' },
     merit:      { pair: '吃饭', name: '按劳分配', yes: ['real', 'brave'], no: ['fair', 'kind'], desc: '出门干活的人白天干活 +1、心里舒坦；留在据点的人和伤员心里不平。' },
-    exile:      { pair: '咬伤', name: '被咬就送走', yes: ['order'], no: ['kind'], desc: '被咬的人当晚就送走，不会有人尸变。大家出门更小心，搜刮、清理受伤的机会少一成。' },
-    quarantine: { pair: '咬伤', name: '隔离间', yes: ['kind'], no: ['order'], desc: '被咬的人多拖两晚；赌一晚的时候就算尸变也伤不到别人。占掉一张床。' },
+    exile:      { pair: '咬伤', name: '被咬就送走', yes: ['order'], no: ['kind'], desc: '被咬的人当晚就送走，不会有人尸变。大家出门更小心，搜刮受伤的机会少两成。' },
+    quarantine: { pair: '咬伤', name: '隔离间', yes: ['kind'], no: ['order'], desc: '被咬的人多拖两晚；赌一晚的时候就算尸变也伤不到别人。关着人的时候占掉一张床。' },
     overtime:   { pair: '干活', name: '加班令', yes: ['brave', 'real'], no: ['kind', 'fair'], desc: '每 7 天有一天是加班日：白天干活的人各 +2。那天大家都累得够呛。' },
-    restday:    { pair: '干活', name: '休息日', yes: ['kind', 'fair'], no: ['real'], desc: '每 7 天有一天全员休息，只守夜不干活。那天之后大家精神好很多。' },
-    open:       { pair: '外人', name: '来者不拒', yes: ['kind'], no: ['order'], desc: '投奔的人多一半，存粮门槛也低；但新来的人里偶尔有带伤的、被咬的、跟人有过节的。' },
+    restday:    { pair: '干活', name: '休息日', yes: ['kind', 'fair'], no: ['real'], desc: '每 7 天有一天全员休息，只守夜不干活。睡饱了，那晚每块地盘防御 +1，之后几天大家精神也好很多。' },
+    open:       { pair: '外人', name: '来者不拒', yes: ['kind'], no: ['order'], desc: '投奔的人多一半，存粮门槛也低；但新来的人里五个有一个带伤、被咬或者跟人有过节。' },
     vet:        { pair: '外人', name: '先查后收', yes: ['order'], no: ['kind'], desc: '投奔的人少三成，但查过的人都有一技之长（最强的那项 +1），不会有带着伤和咬痕混进来的。' },
     confiscate: { pair: '死者', name: '遗物充公', yes: ['real'], no: ['old'], desc: '死去和离开的人留下的东西拆出 2 木料、1 份食物。念旧的人和他的旧识看不下去。' },
     burial:     { pair: '死者', name: '入土为安', yes: ['old', 'kind'], no: ['real'], desc: '有人死了就用 2 木料办丧事，旧识的难过淡得快一倍。' },
@@ -695,7 +695,7 @@ const Sim = (() => {
     else if (v.inj > 0) out.push(['身上有伤', -4]);
     if (s.surv.some(u => u.id !== v.id && friendOf(s, u.id, v.id))) out.push(['有旧识在身边', 4]);
     if (law(s, 'ration')) out.push(['配给吃不饱', -5]);
-    if (law(s, 'merit')) out.push(afield(v) ? ['多劳多得', 3] : ['按劳分配，留守的分得少', -6]);
+    if (law(s, 'merit')) out.push(afield(v) ? ['多劳多得', 3] : ['按劳分配，留守的分得少', -4]);
     if (owned(s).some(t => t.t === 'park' && !t.gutted)) out.push(['能去公园走走', 3]);
     if (owned(s).some(t => t.t === 'temple' && !t.gutted)) out.push(['宫庙能拜拜', 3]);
     return out;
@@ -716,7 +716,7 @@ const Sim = (() => {
   const worstMem = (s, v, good) => (v.mem || []).filter(m => good ? memNow(s, m) > 0 : memNow(s, m) < 0).sort((a, b) => Math.abs(memNow(s, b)) - Math.abs(memNow(s, a)))[0] || null;
 
   // ---------- 派生量 ----------
-  const beds = s => owned(s).reduce((a, t) => a + (eff(t).beds || 0) + (tech(s, 'bunks') && !t.gutted && (t.t === 'house' || t.t === 'school') ? 2 : 0), 0) - (law(s, 'quarantine') ? 1 : 0);   // 隔离间占一张床
+  const beds = s => owned(s).reduce((a, t) => a + (eff(t).beds || 0) + (tech(s, 'bunks') && !t.gutted && (t.t === 'house' || t.t === 'school') ? 2 : 0), 0) - (law(s, 'quarantine') && s.surv.some(v => v.inf > 0) ? 1 : 0);   // 隔离间关着人时占一张床
   // 菜园：开垦出来的地和收复的公园。一整片（废墟、拆过的楼、公园）收 3，完好的楼院子里收 1，再乘作物的季节倍率
   const farmYield = t => t.t === 'ruin' || t.gutted || t.t === 'park' ? FARM_FOOD : 1;
   const plots = s => owned(s).filter(t => t.farm || (t.t === 'park' && !t.gutted));
@@ -909,7 +909,7 @@ const Sim = (() => {
     const shot = v => arch.get(v.id) || 0;
     const barRaw = isBase(t) ? s.fort : t.bar;
     const bar = s.brute && !isBase(t) ? Math.floor(barRaw / 2) : barRaw;   // 巨汉只撞得动街区的临时路障，据点的铁窗工事不受影响
-    const place = (eff(t).def || 0) + (isBase(t) ? (s.dog ? 2 : 0) : 1) + (law(s, 'patrol') ? 1 : 0);   // 收复的地块都封过窗，自带 1；狗会在据点叫醒大家
+    const place = (eff(t).def || 0) + (isBase(t) ? (s.dog ? 2 : 0) : 1) + (law(s, 'patrol') ? 1 : 0) + (law(s, 'restday') && lawDay(s) ? 1 : 0);   // 收复的地块都封过窗，自带 1；狗会在据点叫醒大家
     const team = s.surv.filter(v => ready(v) && guardAt(v, x, y, s));
     let people = team.reduce((a, v) => a + Math.max(0, v.fight + (bonus[v.id] || 0) + (tr(v, 'nightowl') ? 2 : 0)) + (gear(v, 'spear') ? (tech(s, 'spear') ? 2 : 1) : 0) + shot(v), 0);
     if (team.length > 1 && team.some(v => tr(v, 'loud'))) people += team.length - 1;
@@ -1045,7 +1045,7 @@ const Sim = (() => {
     const nv = newSurvivor(s);
     s.surv.push(nv); s.stats.recruited++;
     if (law(s, 'vet')) { const k = ['fight', 'scav', 'build'].sort((a, b) => nv[b] - nv[a])[0]; nv[k] = Math.min(5, nv[k] + 1); }   // 查过的人都有一技之长
-    if (law(s, 'open') && rand(s) < 0.25) {   // 来者不拒：没细看就开了门
+    if (law(s, 'open') && rand(s) < 0.2) {   // 来者不拒：没细看就开了门
       const r = rand(s), others = s.surv.filter(u => u.id !== nv.id);
       if (r < 0.4) { nv.inj = INJ_DAYS; s.log.push({ d: s.day, tone: 'bad', msg: `${nv.name}进门才说腿上有伤，得躺几天。` }); }
       else if (r < 0.7) { nv.inj = INJ_DAYS; nv.inf = INF_DAYS; nv.infHeld = false; nv.infQ = 0; s.log.push({ d: s.day, tone: 'bad', msg: `${nv.name}袖子底下有一圈牙印。${INF_DAYS} 晚之内要用急救包或送医院。` }); }
@@ -1416,7 +1416,7 @@ const Sim = (() => {
   const scavRisk0 = (z, fight) => z > 0 ? clamp(0.07 * z - 0.03 * fight, 0.03, 0.6) : 0;
   const clearRisk0 = (z, fight) => clamp(0.06 * z - 0.04 * fight, 0.03, 0.55);
   const luck = v => tr(v, 'lucky') ? 0.7 : 1;
-  const scavRisk = (s, v, z, fight = v.fight) => scavRisk0(z, fight) * luck(v) * (tr(v, 'coward') ? 0.5 : 1) * (law(s, 'exile') ? 0.9 : 1) * (gear(v, 'bike') ? 0.7 : 1) * (tech(s, 'armor') ? 0.8 : 1) * (s.wxNow === 'rain' ? 0.7 : s.wxNow === 'drizzle' || s.wxNow === 'outer' ? 0.85 : 1);
+  const scavRisk = (s, v, z, fight = v.fight) => scavRisk0(z, fight) * luck(v) * (tr(v, 'coward') ? 0.5 : 1) * (law(s, 'exile') ? 0.8 : 1) * (gear(v, 'bike') ? 0.7 : 1) * (tech(s, 'armor') ? 0.8 : 1) * (s.wxNow === 'rain' ? 0.7 : s.wxNow === 'drizzle' || s.wxNow === 'outer' ? 0.85 : 1);
   const clearRisk = (s, v, z, fight = v.fight) => Math.min(0.8, clearRisk0(z, fight) * luck(v) * (tr(v, 'hothead') ? 1.5 : 1) * (gear(v, 'axe') ? 0.5 : 1) * (tech(s, 'armor') ? 0.8 : 1) * (s.wxNow === 'heat' ? 0.6 : 1));
   const stripYield = (s, v) => (Math.max(1, v.build) + 2) + (gear(v, 'crowbar') ? 3 : 0) + (tech(s, 'dismantle') ? 2 : 0);
   const fortGain = (s, v) => 1 + (v.build >= 4 ? 1 : 0) + (tr(v, 'handy') ? 1 : 0) + (tech(s, 'carpentry') ? 1 : 0);
@@ -2010,7 +2010,7 @@ const Sim = (() => {
     }
 
     // 律法留下的记忆：加班日累、休息日睡饱、在外面巡夜的人累
-    if (lawDay(s) && law(s, 'overtime')) everyone(s, 'overtime', -6, 0.5);
+    if (lawDay(s) && law(s, 'overtime')) everyone(s, 'overtime', -4, 0.5);
     if (lawDay(s) && law(s, 'restday')) everyone(s, 'restday', 10, 0.5);
     if (law(s, 'patrol')) for (const v of s.surv) if (ready(v) && v.task.k === 'defend' && v.task.x != null) remember(s, v, 'patrol', -3, 1);
     // 人心：崩溃的人夜里可能走掉（一晚最多一个）；有人换了档就提一句
