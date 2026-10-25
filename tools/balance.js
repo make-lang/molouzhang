@@ -8,8 +8,8 @@ function gearUp(s, opt) {
   for (const v of s.surv.filter(v => v.inf > 0)) if (s.stash.includes('medkit')) s = Sim.useMedkit(s, v.id);
   const kits = () => s.stash.filter(k => k === 'medkit').length;
   for (const v of s.surv.filter(v => v.inj > 0 && !v.inf).sort((a, b) => b.fight - a.fight)) if (kits() > (opt.kitReserve ?? 1)) s = Sim.useMedkit(s, v.id);
-  const want = { axe: v => v.fight, helmet: v => v.fight + v.scav, crowbar: v => v.scav, walkie: v => v.fight, bike: v => v.scav };
-  for (const k of ['axe', 'crowbar', 'helmet', 'walkie', 'bike']) {
+  const want = { axe: v => v.fight, helmet: v => v.fight + v.scav, crowbar: v => v.scav, walkie: v => v.fight, bike: v => v.scav, xbow: v => v.fight, bow: v => v.fight, spear: v => v.fight, shotgun: v => v.fight, rifle: v => v.fight, pistol: v => v.fight };
+  for (const k of ['shotgun', 'rifle', 'pistol', 'axe', 'crowbar', 'helmet', 'walkie', 'bike', 'xbow', 'bow', 'spear']) {
     while (s.stash.includes(k)) {
       const v = s.surv.filter(v => !v.gear).sort((a, b) => want[k](b) - want[k](a))[0];
       if (!v) break;
@@ -37,7 +37,7 @@ function farmOn(s, day) {
   const se = Sim.seasonOf(s, day);
   const best = Math.max(0, ...Object.keys(Sim.CROPS).filter(k => (s.seeds[k] || 0) > 0).map(k => Sim.cropK(k, se)));
   let f = Sim.income(s, 0).food;   // 菜市场这类不看季节的
-  for (const t of Sim.plots(s)) f += Sim.farmYield(t) * (t.crop && Sim.cropK(t.crop.k, se) > 0 ? Sim.cropK(t.crop.k, se) : best);
+  for (const t of Sim.plots(s)) f += Sim.farmYield(t) * (t.crop && Sim.cropK(t.crop.k, se) > 0 ? Sim.cropK(t.crop.k, se) : best);   // 不算发芽的天数：算进去脚本会太保守、不敢收人
   if (Sim.has(s, 'rooftop')) f += 2 * Sim.cropK('greens', se);
   return f;
 }
@@ -53,10 +53,26 @@ function outlook(s, extra = 0, H = 18) {
 // 收人之前先算账：接下来的淡季存粮不见底，而且地盘开垦完养得起（人少时先收，人手本身就是产出）
 const canFeed = (s, add) => { const o = outlook(s, add); return o.low >= o.use && (o.pot >= 0 || s.surv.length + add <= 9); };
 
+// 会规划的：快换季时，把下一季种不活的菜园提前换种下一季最好的作物（刚好赶在换季时长好）
+function planCrops(s) {
+  const left = Sim.SEASON_LEN - (s.day - 1) % Sim.SEASON_LEN, nx = Sim.nextSeason(s);
+  for (const t of Sim.plots(s)) {
+    if (t.crop && Sim.cropK(t.crop.k, nx) > 0) continue;
+    const k = Object.keys(Sim.CROPS).filter(k => (s.seeds[k] || 0) > 0 && Sim.cropK(k, nx) > 0).sort((a, b) => Sim.cropK(b, nx) - Sim.cropK(a, nx))[0];
+    if (!k || left > Sim.CROPS[k].grow) continue;
+    const i = s.tiles.indexOf(t);
+    s = Sim.setCrop(s, i % W, Math.floor(i / W), k);
+  }
+  return s;
+}
+
 function policy(s, opt) {
   s = gearUp(s, opt);
+  if (opt.plan) s = planCrops(s);
   // 快断粮了就把种子煮来吃：先吃接下来两季都用不上的，每种先留一包（会规划的留两包）
-  const later = k => [0, 9, 18].some(d => Sim.cropK(k, Sim.seasonOf(s, s.day + d)) > 0);
+  // 会规划的：冬天只有萝卜种得活，离入冬还有四季就开始留萝卜种子
+  const winterSoon = opt.plan && [0, 9, 18, 27, 36].some(d => Sim.seasonOf(s, s.day + d) === 'winter');
+  const later = k => [0, 9, 18].some(d => Sim.cropK(k, Sim.seasonOf(s, s.day + d)) > 0) || (winterSoon && Sim.cropK(k, 'winter') > 0);
   for (const k of Object.keys(Sim.CROPS).sort((a, b) => later(a) - later(b))) while (s.food < Sim.foodUse(s) && s.seeds[k] > (opt.plan && later(k) ? 2 : 1)) s = Sim.eatSeeds(s, k);
   const margin = opt.margin ?? 0;
   const plan = Sim.nightPlan(s);
@@ -69,24 +85,42 @@ function policy(s, opt) {
   // 会规划的脚本：据点按冲击上限守（铁门只有一扇），铁门受过伤时更保守
   // 看天气：雾夜冲击说不准，多留一点余量
   const fogM = opt.plan && plan.wx === 'fog' ? 1 : 0;
-  const target = f => (opt.plan && f.base ? (s.wall < s.wallMax * 0.7 ? f.hi + 1 : f.hi) : Math.ceil((f.lo + f.hi) / 2) + margin) + fogM;
+  // 据点的铁门撞一下不会马上没：完好时按中值守，受过伤才按上限守
+  const target = f => (opt.plan && f.base ? (s.wall < s.wallMax * 0.5 ? f.hi + 1 : s.wall < s.wallMax * 0.8 ? f.hi : Math.ceil((f.lo + f.hi) / 2)) : Math.ceil((f.lo + f.hi) / 2) + margin) + fogM;
   const fronts = plan.fronts.map(f => ({ ...f, need: target(f) - f.def.bar - f.def.place }))
     .sort((a, b) => (b.base - a.base) || (b.need - a.need));
   // 会规划的脚本知道加固在夜袭之前结算：会盖的人去加固，今晚就多 1–2 点，而且是永久的
   const fortGain = v => 1 + (v.build >= 4 ? 1 : 0) + (v.trait === 'handy' ? 1 : 0) + (Sim.has(s, 'sandbag') ? 1 : 0);
-  // 寒流夜要烧材料取暖，先留出来
-  let fortMat = s.mat - (opt.plan && plan.wx === 'cold' ? Math.ceil(s.surv.length / 2) : 0);
+  // 寒流夜要烧木料取暖，先留出来。据点焊铁窗要木料加废铁，街区堆路障要木料
+  const res = { mat: s.mat - (opt.plan && plan.wx === 'cold' ? Math.ceil(s.surv.length / 2) : 0), iron: s.iron, chem: s.chem };
+  const fcost = base => base ? Sim.COST.base : Sim.COST.bar;
+  const canF = base => Object.keys(fcost(base)).every(k => res[k] >= fcost(base)[k]);
+  const payF = base => { for (const [k, n] of Object.entries(fcost(base))) res[k] -= n; };
+  const built = new Set();
+  const ammoLeft = { arrow: s.arrow || 0, ammo: s.ammo || 0 };
+  const fire = v => { const G = v.gear && Sim.GEAR[v.gear]; if (!G || !G.shot || ammoLeft[G.shot] < G.per) return 0; ammoLeft[G.shot] -= G.per; return G.atk; };
   for (const f of fronts) {
     let need = f.need;
     const room = () => f.base ? s.fort < Sim.FORT_MAX : Sim.tile(s, f.x, f.y).bar < Sim.barMax(s);
+    // 守这块地的人顺手在空着的边上造铁丝网或木栅（造完当晚就留在那里守，工事是永久的）
+    const edgeFree = () => Sim.outEdges(s, f.x, f.y).filter(d => !Sim.fortAt(s, f.x, f.y, d) && !built.has(`${f.x},${f.y},${d}`));
+    // 会规划的：给据点焊铁窗和寒流取暖留够料，剩下的都拿去造；边都造满了就把木栅换成铁丝网
+    const keep = { iron: s.fort < Sim.FORT_MAX ? 2 : 0, mat: s.fort < Sim.FORT_MAX ? 2 : 0 };
+    const pickWork = () => !opt.plan ? (res.iron >= 5 ? 'wire' : res.mat >= 7 ? 'palisade' : null)
+      : res.iron - 3 >= keep.iron ? 'wire' : res.mat - 3 >= keep.mat + 2 ? 'palisade' : null;
+    const upgrade = () => opt.plan && res.iron - 3 >= keep.iron ? Sim.outEdges(s, f.x, f.y).filter(d => { const w = Sim.fortAt(s, f.x, f.y, d); return w && w.k === 'palisade' && !built.has(`${f.x},${f.y},${d}`); }) : [];
     while (need > 0 && pool.length) {
-      if (opt.plan && fortMat >= 2 && room()) {
+      if (opt.plan && canF(f.base) && room()) {
         const b = pool.filter(v => fortGain(v) >= v.fight).sort((a, c) => fortGain(c) - fortGain(a))[0];
-        if (b) { pool.splice(pool.indexOf(b), 1); tasks[b.id] = f.base ? { k: 'fortify' } : { k: 'fortify', x: f.x, y: f.y }; need -= fortGain(b) * (s.brute && !f.base ? 0.5 : 1); fortMat -= 2; continue; }
+        if (b) { pool.splice(pool.indexOf(b), 1); tasks[b.id] = f.base ? { k: 'fortify' } : { k: 'fortify', x: f.x, y: f.y }; need -= fortGain(b) * (s.brute && !f.base ? 0.5 : 1); payF(f.base); continue; }
       }
-      const v = pool.shift();
-      tasks[v.id] = f.base ? { k: 'defend' } : { k: 'defend', x: f.x, y: f.y };
-      need -= v.fight;
+      const v = pool.shift(), ug = opt.noWorks ? [] : upgrade(), ef = edgeFree().length ? edgeFree() : ug, wk = !opt.noWorks && ef.length ? (ef === ug ? 'wire' : pickWork()) : null;
+      if (wk) {
+        tasks[v.id] = { k: 'build', x: f.x, y: f.y, item: `${wk}:${ef[0]}` }; built.add(`${f.x},${f.y},${ef[0]}`);
+        for (const [k, n] of Object.entries(Sim.FORTS[wk].cost)) res[k] -= n;
+        need -= ef === ug ? 1 : wk === 'wire' ? 2 : 1;
+      } else tasks[v.id] = f.base ? { k: 'defend' } : { k: 'defend', x: f.x, y: f.y };
+      need -= v.fight + (v.gear === 'spear' ? 1 : 0) + fire(v);
     }
     deficit[`${f.x},${f.y}`] = need;
   }
@@ -96,7 +130,7 @@ function policy(s, opt) {
   const scavable = front.filter(o => o.t.food + o.t.mat > 0)
     .sort((a, b) => (b.t.food * 2 + b.t.mat) / (1 + b.t.z) - (a.t.food * 2 + a.t.mat) / (1 + a.t.z));
   const expand = plan.edges < (opt.maxEdges ?? 99) && !opt.turtle;
-  const val = o => { const T = Sim.eff(o.t); return ((T.food || 0) * 3 + (T.beds || 0) * 0.6 + (T.mat || 0) * 2 + (T.def || 0) + (T.heal ? 2 : 0) + (T.radio ? 6 : 0) + 0.3) / Math.max(1, TYPES[o.t.t].cost - o.t.prog); };
+  const val = o => { const T = Sim.eff(o.t); return ((T.food || 0) * 3 + (T.beds || 0) * 0.6 + (T.mat || 0) * 2 + (T.def || 0) + (T.heal ? 2 : 0) + (T.radio ? 6 : 0) + (opt.plan && !opt.noFactory && Sim.WORKS[o.t.t] ? 2 : 0) + 0.3) / Math.max(1, TYPES[o.t.t].cost - o.t.prog); };
   // 往巢推进：离已发现的巢越近的地块越想拿（拿到离巢两格以内就能去端）
   const nestPull = o => {
     if (!opt.push) return 0;
@@ -112,15 +146,17 @@ function policy(s, opt) {
     const d = Math.abs(ri % W - o.x) + Math.abs(Math.floor(ri / W) - o.y);
     return Math.max(0, 6 - d) * 1.5;
   };
-  const claimable = front.filter(o => !o.t.owned && o.t.z === 0 && !o.t.nest).sort((a, b) => val(b) + nestPull(b) + goalPull(b) - val(a) - nestPull(a) - goalPull(a));
-  const clearable = front.filter(o => !o.t.owned && o.t.z > 0 && !o.t.nest).sort((a, b) => (opt.hunt ? (b.t.scream ? 9 : 0) - (a.t.scream ? 9 : 0) : 0) + (val(b) + nestPull(b) + goalPull(b)) / (1 + b.t.z) - (val(a) + nestPull(a) + goalPull(a)) / (1 + a.t.z));
+  const pull = o => nestPull(o) + goalPull(o);
+  const claimable = front.filter(o => !o.t.owned && o.t.z === 0 && !o.t.nest).sort((a, b) => val(b) + pull(b) - val(a) - pull(a));
+  const clearable = front.filter(o => !o.t.owned && o.t.z > 0 && !o.t.nest).sort((a, b) => (opt.hunt ? (b.t.scream ? 9 : 0) - (a.t.scream ? 9 : 0) : 0) + (val(b) + pull(b)) / (1 + b.t.z) - (val(a) + pull(a)) / (1 + a.t.z));
   const strippable = front.filter(o => !o.t.owned && o.t.z === 0 && o.t.strip > 0 && ['house', 'ruin', 'mart', 'market'].includes(o.t.t));
   const fo = opt.plan ? outlook(s) : null;
   const crisis = !!fo && fo.low < fo.use * 2;   // 接下来的淡季会断粮
   const hungry = s.food < s.surv.length * 3;
-  let fortified = 0, farmed = 0, hungryScav = 0, seedHunt = false;
+  let fortified = 0, farmed = 0, hungryScav = 0, seedHunt = false, groved = false;
   const fit = d => Object.keys(Sim.CROPS).filter(k => Sim.cropK(k, Sim.seasonOf(s, s.day + d)) > 0).reduce((a, k) => a + (s.seeds[k] || 0), 0);
-  const seedShort = fit(0) < 2 || fit(9) < Sim.plots(s).length;
+  const winterSeeds = Object.keys(Sim.CROPS).filter(k => Sim.cropK(k, 'winter') > 0).reduce((a, k) => a + (s.seeds[k] || 0), 0);
+  const seedShort = fit(0) < 2 || fit(9) < Sim.plots(s).length || (winterSoon && winterSeeds < Sim.plots(s).length);
   const seedy = scavable.filter(o => Sim.SEED_P[o.t.t] && !o.t.gutted).sort((a, b) => Sim.SEED_P[b.t.t] / (1 + b.t.z) - Sim.SEED_P[a.t.t] / (1 + a.t.z));
   const protectedSet = new Set(s.surv.filter(u => u.want && u.want.k === 'protect').map(u => `${u.want.x},${u.want.y}`));
   if (opt.wants) {
@@ -140,28 +176,60 @@ function policy(s, opt) {
     const v = free.shift(); if (v) tasks[v.id] = { k: 'rescue', x: s.sos.x, y: s.sos.y };
   }
   if (opt.nest === 'after') sendNestTeam(s, opt, free, tasks);
-  // 打造：材料宽裕、还有人没装备时，让一个留守据点的人顺手做（夜里照样守）
-  if (!opt.noGear && !opt.noCraft && s.mat >= 12 && s.surv.filter(u => !u.gear).length > s.stash.length + 1) {
-    const home = s.surv.filter(v => tasks[v.id] && tasks[v.id].k === 'defend' && tasks[v.id].x == null).sort((a, b) => b.build - a.build)[0];
-    if (home) tasks[home.id] = { k: 'craft', item: s.surv.some(u => u.gear === 'axe') || s.stash.includes('axe') ? 'helmet' : 'axe' };
+  // 打造：材料宽裕、还有人没装备时，让一个留守据点的人顺手做（夜里照样守）；化学品够就做急救包
+  // 打造的人：先找留守据点的（打造的人夜里照样守据点），没有就从空闲的人里拉一个
+  const home = pull => s.surv.filter(v => tasks[v.id] && tasks[v.id].k === 'defend' && tasks[v.id].x == null).sort((a, b) => b.build - a.build)[0] || (pull && free.length > 2 ? free.splice(free.length - 1, 1)[0] : null);
+  const spare = (c, keep = 6) => Object.entries(c).every(([k, n]) => res[k] - n >= (k === 'chem' ? 0 : keep));
+  // 先补箭（拿弓弩的人每人留 3 支），再给没装备的人做弩、弓、长矛，最后才是斧头、安全帽
+  const holds = shot => s.surv.filter(u => u.gear && Sim.GEAR[u.gear].shot === shot).reduce((a, u) => a + Sim.GEAR[u.gear].per, 0) + s.stash.filter(k => Sim.GEAR[k].shot === shot).length;
+  const shooters = holds('arrow'), gunners = holds('ammo');
+  const bare = s.surv.filter(u => !u.gear).length - s.stash.filter(k => !Sim.GEAR[k].use).length;
+  if (!opt.noGear && !opt.noCraft) {
+    // 不缺粮的时候才从空闲的人里拉一个专门做武器
+    const lowA = shooters && (s.arrow || 0) < shooters * 3, lowB = gunners && (s.ammo || 0) < gunners * 4 && s.powder >= 1;
+    const h = home(!hungry && !crisis && (bare > 0 || lowA || lowB));
+    const order = [lowB ? 'bullets' : null, lowA ? 'arrows' : null, ...(bare > 0 ? ['xbow', 'bow', 'spear', s.surv.some(u => u.gear === 'axe') || s.stash.includes('axe') ? 'helmet' : 'axe'] : [])].filter(Boolean);
+    const item = h && order.filter(k => !opt.noWeapons || !['xbow', 'bow', 'spear', 'arrows', 'bullets'].includes(k)).find(k => spare(Sim.craftCost(h, k), k === 'arrows' || k === 'bullets' ? 2 : 6));
+    if (item) { tasks[h.id] = { k: 'craft', item }; for (const [k, n] of Object.entries(Sim.craftCost(h, item))) res[k] -= n; }
+  }
+  if (!opt.noGear && !opt.noCraft && s.stash.filter(k => k === 'medkit').length < 2) {
+    const h = home();
+    if (h && spare(Sim.craftCost(h, 'medkit'))) tasks[h.id] = { k: 'craft', item: 'medkit' };
+  }
+  // 会规划的：自家的工厂有原料就派一个人驻场，快坏了就修（不饿的时候）
+  if (opt.plan && !opt.noFactory && !hungry) for (const t of Sim.owned(s).filter(t => Sim.WORKS[t.t] && !t.gutted)) {
+    const i = s.tiles.indexOf(t), x = i % W, y = Math.floor(i / W), Wk = Sim.WORKS[t.t];
+    const want = t.t === 'garage' ? s.parts < 3 : t.t === 'chemplant' ? s.powder < 4 && s.chem >= 2 : s.chem < 8;
+    if (!want || !free.length) continue;
+    const v = free.sort((a, b) => b.build - a.build).shift();
+    if (Sim.cond(t) <= 1 && s.iron >= 4) tasks[v.id] = { k: 'fix', x, y };
+    else if (Sim.cond(t) > 0 && Object.entries(Wk.use).every(([k, n]) => (s[k] || 0) >= n)) tasks[v.id] = { k: 'work', x, y };
+    else free.unshift(v);
   }
   for (const v of free) {
     // 加固：缺口最大的边界
     const worst = fronts.filter(f => f.base ? s.fort < Sim.FORT_MAX : Sim.tile(s, f.x, f.y).bar < Sim.barMax(s))
       .sort((a, b) => deficit[`${b.x},${b.y}`] - deficit[`${a.x},${a.y}`])[0];
-    if (fortMat >= 2 + fortified * 2 && fortified < (opt.fortifiers ?? 1) && worst && (deficit[`${worst.x},${worst.y}`] > -2 || s.wall < s.wallMax - 3)) {
-      tasks[v.id] = worst.base ? { k: 'fortify' } : { k: 'fortify', x: worst.x, y: worst.y }; fortified++; continue;
+    if (worst && canF(worst.base) && fortified < (opt.fortifiers ?? 1) && (deficit[`${worst.x},${worst.y}`] > -2 || s.wall < s.wallMax - 3)) {
+      tasks[v.id] = worst.base ? { k: 'fortify' } : { k: 'fortify', x: worst.x, y: worst.y }; fortified++; payF(worst.base); continue;
     }
     // 饿的时候去搜刮；会规划的只派一半人，另一半继续开垦、扩张，不然搜光了就只剩等死
     if (hungry && scavable.length && (!opt.plan || hungryScav < Math.ceil(free.length / 2))) { const o = scavable[0]; tasks[v.id] = { k: 'scav', x: o.x, y: o.y }; hungryScav++; continue; }
     const strippable2 = strippable.filter(o => !protectedSet.has(`${o.x},${o.y}`));
-    if (opt.strip && s.mat < 4 && strippable2.length) { const o = strippable2[0]; tasks[v.id] = { k: 'strip', x: o.x, y: o.y }; continue; }
+    // 木料不够：先砍长好的树，再去拆楼；废铁不够也去拆
+    const logs = Sim.owned(s).filter(t => Sim.grown(t));
+    const woodLow = s.mat < 4;
+    if (woodLow && logs.length) { const i = s.tiles.indexOf(logs[0]); tasks[v.id] = { k: 'log', x: i % W, y: Math.floor(i / W) }; logs.shift(); continue; }
+    if (opt.strip && (woodLow || s.iron < 2) && strippable2.length) { const o = strippable2[0]; tasks[v.id] = { k: 'strip', x: o.x, y: o.y }; continue; }
     // 开垦：产出不够吃、又不是冬天，就把自己地盘里的废墟开成菜园
     const farmable = Sim.owned(s).filter(t => !t.farm && t.t !== 'park' && t.t !== 'base').sort((a, b) => Sim.farmYield(b) - Sim.farmYield(a));
     const wantFarm = opt.plan ? (fo.net1 < 2 || crisis) && farmed < 3 : farmed < 2 && s.season !== 'winter' && Sim.income(s, 1).food < Sim.foodUse(s);
     if (!opt.noFarm && farmable.length && wantFarm) {
       const i = s.tiles.indexOf(farmable[0]); tasks[v.id] = { k: 'farm', x: i % W, y: Math.floor(i / W) }; farmed++; continue;
     }
+    // 会规划的：不缺粮的时候在废墟上种一两片树，以后有木料
+    const grovable = Sim.owned(s).filter(t => Sim.canDo(s, v, 'grove', s.tiles.indexOf(t) % W, Math.floor(s.tiles.indexOf(t) / W)));
+    if (opt.plan && !crisis && !groved && grovable.length && Sim.owned(s).filter(t => t.grove).length < 2 && s.surv.length >= 5) { const i = s.tiles.indexOf(grovable[0]); tasks[v.id] = { k: 'grove', x: i % W, y: Math.floor(i / W) }; groved = true; continue; }
     if (expand && claimable.length && v.build >= 2) { const o = claimable[0]; tasks[v.id] = { k: 'claim', x: o.x, y: o.y }; continue; }
     if (expand && clearable.length && v.fight >= 2) { const o = clearable[0]; tasks[v.id] = { k: 'clear', x: o.x, y: o.y }; continue; }
     if (v.gear === 'bike') {   // 骑车的人去走路到不了、但值得跑一趟的地方
@@ -217,6 +285,9 @@ if (require.main === module) {
     ['有空才打巢', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'after' }],
     ['先打巢', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', detail: true }],
     ['会规划', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', plan: true }],
+    ['不造工事', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', plan: true, noWorks: true }],
+    ['不开工厂', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', plan: true, noFactory: true }],
+    ['不做武器', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', plan: true, noWeapons: true }],
     ['奔电台', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', plan: true, goal: 'rescue' }],
     // 其余季节都用先打巢的打法
     // 开局季节都用会规划的脚本测
