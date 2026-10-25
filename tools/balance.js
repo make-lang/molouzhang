@@ -32,11 +32,20 @@ function sendNestTeam(s, opt, free, tasks) {
   }
 }
 
-// 粮食展望（opt.plan）：按接下来 18 天每天的季节收成算，存粮最低会掉到多少。extra 是假设多几张嘴
+// 某一天菜园大概收多少：种着的作物那季还活着就照收，不然看仓库里有没有那季能种的种子（不算发芽的天数）
+function farmOn(s, day) {
+  const se = Sim.seasonOf(s, day);
+  const best = Math.max(0, ...Object.keys(Sim.CROPS).filter(k => (s.seeds[k] || 0) > 0).map(k => Sim.cropK(k, se)));
+  let f = Sim.income(s, 0).food;   // 菜市场这类不看季节的
+  for (const t of Sim.plots(s)) f += Sim.farmYield(t) * (t.crop && Sim.cropK(t.crop.k, se) > 0 ? Sim.cropK(t.crop.k, se) : best);
+  if (Sim.has(s, 'rooftop')) f += 2 * Sim.cropK('greens', se);
+  return f;
+}
+// 粮食展望（opt.plan）：按接下来 18 天每天的收成算，存粮最低会掉到多少（冬天吃得多）。extra 是假设多几张嘴
 function outlook(s, extra = 0, H = 18) {
   const use = Sim.foodUse(s) + extra;
   let food = s.food, low = s.food;
-  for (let d = 0; d < H; d++) { food += Sim.income(s, Sim.SEASONS[Sim.seasonOf(s, s.day + d)].farm).food - use; low = Math.min(low, food); }
+  for (let d = 0; d < H; d++) { food += farmOn(s, s.day + d) - Math.ceil(use * (Sim.seasonOf(s, s.day + d) === 'winter' && Sim.seasonOf(s) !== 'winter' ? 1.2 : 1)); low = Math.min(low, food); }
   // pot：把地盘里能开垦的都开了以后，按正常收成的净产出
   const pot = Sim.owned(s).filter(t => !t.farm && t.t !== 'park' && t.t !== 'base').reduce((a, t) => a + Sim.farmYield(t), 0);
   return { low, use, net1: Sim.income(s, 1).food - use, pot: Sim.income(s, 1).food + pot - use };
@@ -46,6 +55,9 @@ const canFeed = (s, add) => { const o = outlook(s, add); return o.low >= o.use &
 
 function policy(s, opt) {
   s = gearUp(s, opt);
+  // 快断粮了就把种子煮来吃：先吃接下来两季都用不上的，每种先留一包（会规划的留两包）
+  const later = k => [0, 9, 18].some(d => Sim.cropK(k, Sim.seasonOf(s, s.day + d)) > 0);
+  for (const k of Object.keys(Sim.CROPS).sort((a, b) => later(a) - later(b))) while (s.food < Sim.foodUse(s) && s.seeds[k] > (opt.plan && later(k) ? 2 : 1)) s = Sim.eatSeeds(s, k);
   const margin = opt.margin ?? 0;
   const plan = Sim.nightPlan(s);
   const pool = s.surv.filter(Sim.ready).sort((a, b) => b.fight - a.fight);
@@ -106,7 +118,10 @@ function policy(s, opt) {
   const fo = opt.plan ? outlook(s) : null;
   const crisis = !!fo && fo.low < fo.use * 2;   // 接下来的淡季会断粮
   const hungry = s.food < s.surv.length * 3;
-  let fortified = 0, farmed = 0, hungryScav = 0;
+  let fortified = 0, farmed = 0, hungryScav = 0, seedHunt = false;
+  const fit = d => Object.keys(Sim.CROPS).filter(k => Sim.cropK(k, Sim.seasonOf(s, s.day + d)) > 0).reduce((a, k) => a + (s.seeds[k] || 0), 0);
+  const seedShort = fit(0) < 2 || fit(9) < Sim.plots(s).length;
+  const seedy = scavable.filter(o => Sim.SEED_P[o.t.t] && !o.t.gutted).sort((a, b) => Sim.SEED_P[b.t.t] / (1 + b.t.z) - Sim.SEED_P[a.t.t] / (1 + a.t.z));
   const protectedSet = new Set(s.surv.filter(u => u.want && u.want.k === 'protect').map(u => `${u.want.x},${u.want.y}`));
   if (opt.wants) {
     for (const u of s.surv.filter(u => u.want && (u.want.k === 'rescue' || u.want.k === 'fetch'))) {
@@ -155,6 +170,8 @@ function policy(s, opt) {
       far.sort((a, b) => (b.t.food * 2 + b.t.mat) / (1 + b.t.z) - (a.t.food * 2 + a.t.mat) / (1 + a.t.z));
       if (far.length && (!scavable.length || (far[0].t.food * 2 + far[0].t.mat) / (1 + far[0].t.z) > (scavable[0].t.food * 2 + scavable[0].t.mat) / (1 + scavable[0].t.z))) { tasks[v.id] = { k: 'scav', x: far[0].x, y: far[0].y }; continue; }
     }
+    // 会规划的：种子不够把菜园种满（这季和下一季），派一个人去容易翻到种子的地方
+    if (opt.plan && !seedHunt && seedShort && seedy.length) { const o = seedy[0]; tasks[v.id] = { k: 'scav', x: o.x, y: o.y }; seedHunt = true; continue; }
     if (scavable.length) { const o = scavable[0]; tasks[v.id] = { k: 'scav', x: o.x, y: o.y }; continue; }
     tasks[v.id] = { k: 'defend' };
   }

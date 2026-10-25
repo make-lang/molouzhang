@@ -206,7 +206,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     <div id="tabs" role="tablist">
       <button role="tab" data-tab="tile">地块</button>
       <button role="tab" data-tab="night">今晚</button>
-      <button role="tab" data-tab="gear">装备</button>
+      <button role="tab" data-tab="gear">仓库</button>
       <button role="tab" data-tab="log">记事</button>
     </div>
     <div id="sidebody" class="scroll"></div>
@@ -363,8 +363,12 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
   function hash(x, y, k) { let h = (x * 374761393 + y * 668265263 + k * 2147483647 + S.seed) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
   const px = (x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(x, y, w, h); };
   const sprites = new Map();
+  // 菜园里种的东西：叶子的颜色，加上花、薯块或萝卜头的点缀；没种东西就只剩土
+  const CROP_COL = { greens: ['#7fb257', '#9fd27a'], potato: ['#5f8a3a', '#9a6a8a'], melon: ['#6fa04a', '#e8c84a'], radish: ['#9ccf6a', '#e8e4d8'] };
+  let PLANT = CROP_COL.greens;
   function tileSprite(x, y, t) {
-    const key = `${S.seed}|${x},${y}|${t.t}|${t.gutted ? 1 : 0}|${t.owned ? 1 : 0}|${t.t === 'park' && t.owned ? 'g' : ''}|${t.farm ? 'f' : ''}`;
+    const key = `${S.seed}|${x},${y}|${t.t}|${t.gutted ? 1 : 0}|${t.owned ? 1 : 0}|${t.t === 'park' && t.owned ? 'g' : ''}|${t.farm ? 'f' : ''}|${t.crop ? t.crop.k : '-'}`;
+    PLANT = t.crop ? CROP_COL[t.crop.k] : null;
     let c = sprites.get(key);
     if (c) return c;
     if (sprites.size > 400) sprites.clear();
@@ -378,7 +382,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
       (BUILD[t.t] || BUILD.ruin)(P, r, t.owned, g);
       if (t.gutted && t.t !== 'ruin') gutted(P, r);
     }
-    if (t.farm && t.t !== 'ruin' && !t.gutted) for (let i = 0; i < 3; i++) { P(4 + i * 15, 43, 11, 3, '#4a3626'); for (let k = 0; k < 4; k++) P(5 + i * 15 + k * 3, 42 + (k % 2), 2, 2, '#7fb257'); }   // 院子里的小菜畦
+    if (t.farm && t.t !== 'ruin' && !t.gutted) for (let i = 0; i < 3; i++) { P(4 + i * 15, 43, 11, 3, '#4a3626'); if (PLANT) for (let k = 0; k < 4; k++) P(5 + i * 15 + k * 3, 42 + (k % 2), 2, 2, (k + i) % 3 ? PLANT[0] : PLANT[1]); }   // 院子里的小菜畦
     if (t.owned) glow(g);
     sprites.set(key, c);
     return c;
@@ -462,7 +466,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
       P(5, 5, 38, 38, lit ? '#2f4a28' : '#223820');
       for (let i = 0; i < 30; i++) P(6 + Math.floor(r(200 + i) * 36), 6 + Math.floor(r(240 + i) * 36), 1, 1, lit ? '#3d5e31' : '#2b4526');
       if (lit) {   // 收复的公园改成菜园
-        for (let row = 0; row < 4; row++) { P(8, 9 + row * 8, 22, 5, '#4a3626'); for (let i = 0; i < 6; i++) P(9 + i * 4, 9 + row * 8 + (i % 2), 2, 2, '#7fb257'); }
+        for (let row = 0; row < 4; row++) { P(8, 9 + row * 8, 22, 5, '#4a3626'); if (PLANT) for (let i = 0; i < 6; i++) P(9 + i * 4, 9 + row * 8 + (i % 2), 2, 2, (i + row) % 3 ? PLANT[0] : PLANT[1]); }
         P(35, 14, 1, 10, '#6b4a2e'); P(33, 16, 5, 1, '#6b4a2e'); P(34, 12, 3, 3, '#d6b06a'); P(33, 17, 5, 4, '#8a5a3a');   // 稻草人
         tree(P, 37, 34, 5, lit);
         return;
@@ -791,7 +795,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     const surge = Sim.surgeIn(S), pa = Sim.arrivalChance(S);
     $('hud').innerHTML = `
       <span class="res" title="${S.season ? Sim.SEASONS[S.season].desc : ''}">${ic('sun')} 第 ${S.day} 天${S.season ? `<small>${Sim.SEASONS[S.season].name} ${sd}/${Sim.SEASON_LEN}</small>` : ''}</span>
-      <span class="res" title="食物：库存 / 每天净变化">${ic('food', '食物')}<span class="${S.food + net < 0 ? 'c-red' : ''}">${S.food}</span><small class="${net < 0 ? 'c-amber' : ''}">${net >= 0 ? '+' : ''}${net}</small></span>
+      <span class="res" title="食物：库存 / 每天净变化（明天的收成减去吃掉的）\n${pantryTxt()}">${ic('food', '食物')}<span class="${S.food + net < 0 ? 'c-red' : ''}">${S.food}</span><small class="${net < 0 ? 'c-amber' : ''}">${net >= 0 ? '+' : ''}${net}</small></span>
       <span class="res" title="材料">${ic('mat', '材料')}${S.mat}${inc.mat ? `<small>+${inc.mat}</small>` : ''}</span>
       <span class="res" title="住户 / 床位">${ic('bed', '床位')}${S.surv.length}<small>/${beds}</small></span>
       <span class="res" title="铁门耐久">${ic('gate', '铁门')}<span class="hp${S.wall <= 4 ? ' low' : ''}"><i style="width:${Math.max(0, S.wall / S.wallMax * 100)}%"></i></span><small>${S.wall}</small></span>
@@ -865,7 +869,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     clear: ['清理丧尸', '清干净才能收复或拆除'],
     claim: ['收复', '封窗、清路、接水电'],
     strip: ['拆除', '换成材料'],
-    farm: ['开垦菜园', '收成看季节'],
+    farm: ['开垦菜园', '要有种子才种得出东西'],
   };
   const STATE_TXT = { safe: '守得住', risk: '看运气', fail: '守不住' };
   const STATE_CLS = { safe: 'c-good', risk: 'c-amber', fail: 'c-red' };
@@ -897,6 +901,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     body.querySelectorAll('[data-heal]').forEach(b => b.onclick = () => commit(Sim.useMedkit(S, +b.dataset.heal)));
     body.querySelectorAll('[data-craft]').forEach(b => b.onclick = () => commit(Sim.setTask(S, selSurv, { k: 'craft', item: b.dataset.craft })));
     body.querySelectorAll('[data-fx]').forEach(b => b.onclick = () => { selTile = { x: +b.dataset.fx, y: +b.dataset.fy }; tab = 'tile'; render(); });
+    body.querySelectorAll('[data-eatseed]').forEach(b => b.onclick = () => commit(Sim.eatSeeds(S, b.dataset.eatseed)));
     body.querySelectorAll('[data-trust]').forEach(b => b.onclick = () => commit(Sim.trustWx(S, +b.dataset.trust)));
   }
 
@@ -917,7 +922,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     if (dorm) chip += '<span class="chip c-red">休眠的尸巢</span>';
     if (t.drop) chip += '<span class="chip c-good">空投</span>';
     let h = `<div class="th"><b>${Sim.tname(t)}</b>${chip}<span class="dim">${x + 1},${y + 1}</span></div>
-      <div class="desc">${t.farm ? `${t.t === 'ruin' || t.gutted ? '开垦出来的菜园' : ty.desc + '院子里开了几畦菜'}，每天 +${Sim.farmYield(t)} 食物。收成看季节，初春、深秋减半，寒冬种不出东西。` : t.gutted ? '拆了一部分，原本的用处没了。' : t.t === 'radio' && S.city === 'noradio' ? '电塔倒了，这里修好了也叫不来救援。' : ty.desc}${!t.owned && t.prog ? ` 施工 ${t.prog}/${ty.cost}。` : ''}</div>`;
+      <div class="desc">${t.owned && (t.farm || (t.t === 'park' && !t.gutted)) ? `${t.t === 'park' ? '公园改的菜园' : t.t === 'ruin' || t.gutted ? '开垦出来的菜园' : ty.desc + '院子里开了几畦菜'}，每天收 ${Sim.farmYield(t)} 份再乘作物这一季的倍率。${cropTxt(t)}` : t.farm ? '菜园荒了。' : t.gutted ? '拆了一部分，原本的用处没了。' : t.t === 'radio' && S.city === 'noradio' ? '电塔倒了，这里修好了也叫不来救援。' : ty.desc}${!t.owned && t.prog ? ` 施工 ${t.prog}/${ty.cost}。` : ''}</div>`;
     if (t.scream) h += `<div class="box fail"><span class="c-red">尖叫者</span><br><span class="dim">它让这里和四周的丧尸长得更快，夜里会把尸群引向它那一侧。把这一格清空就能解决它。</span></div>`;
     if (t.seen && !t.owned && !nest && Sim.nestHint(S, x, y)) h += `<div class="box fail dim">这一带的丧尸会自己繁殖，附近三格以内藏着一个没找到的尸巢。多看几块地，范围就能缩小。</div>`;
     if (dorm) h += `<div class="box fail"><span class="c-red">休眠的尸巢</span><br><span class="dim">一团还没醒的卵，现在不繁殖、不喷丧尸，但迟早会醒。趁它没醒端掉最省事：派人来清理，离地盘两格以内就能直接杀过去。</span></div>`;
@@ -981,12 +986,41 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     return h;
   }
 
+  // 粮仓：按种类合计，写出最快几天后坏
+  const FN = k => Sim.FOODS[k].name;
+  function pantryRows() {
+    const by = {};
+    for (const b of S.pantry || []) { const o = by[b.k] = by[b.k] || { n: 0, exp: 0 }; o.n += b.n; if (b.exp && (!o.exp || b.exp < o.exp)) o.exp = b.exp; }
+    return Object.keys(Sim.FOODS).filter(k => by[k]).map(k => ({ k, n: by[k].n, left: by[k].exp ? by[k].exp - S.day : null }));
+  }
+  const leftTxt = r => r.left == null ? '不会坏' : r.left <= 0 ? '今晚就坏' : `最快 ${r.left} 天后坏`;
+  const seedTxt = () => Object.keys(Sim.CROPS).map(k => `${FN(k)} ${S.seeds[k] || 0}`).join('、');
+  const pantryTxt = () => pantryRows().map(r => `${FN(r.k)} ${r.n}（${leftTxt(r)}）`).join('、') + `\n种子：${seedTxt()}`;
+  const SEA_N = k => Sim.SEASONS[k].name;
+  // 作物在哪几季长得好
+  const cropSeasons = k => { const c = Sim.CROPS[k].sea, ok = Sim.SEASON_ORDER.filter(x => c[x] >= 1), half = Sim.SEASON_ORDER.filter(x => c[x] > 0 && c[x] < 1); return `${ok.map(SEA_N).join('、')}${half.length ? `（${half.map(SEA_N).join('、')}减半）` : ''}${Sim.SEASON_ORDER.some(x => c[x] > 1) ? '，盛夏多收一半' : ''}`; };
+  // 菜园地块：种着什么、几天能收
+  function cropTxt(t) {
+    if (!t.crop) return '空着：仓库里没有这一季种得活的种子。';
+    const c = Sim.CROPS[t.crop.k], k = Sim.cropK(t.crop.k, S.season), wait = c.grow - (S.day - t.crop.d);
+    return `种着${FN(t.crop.k)}，${wait > 0 ? `还要 ${wait} 天才能收` : `每天大约收 ${Math.round(Sim.farmYield(t) * k * 10) / 10} 份`}。${FN(t.crop.k)}长在${cropSeasons(t.crop.k)}，过季就枯了，到时候用仓库里的种子换种别的。`;
+  }
+  function foodHtml() {
+    let h = `<div class="gh">粮食 <span class="dim">每天吃 ${Sim.foodUse(S)} 份，先吃快坏的</span></div>`;
+    const rows = pantryRows();
+    h += rows.length ? rows.map(r => `<div class="gi"><div class="row2"><span>${ic('food')}<span class="c-amber">${FN(r.k)}</span> ×${r.n}</span><span class="${r.left != null && r.left <= 1 ? 'c-red' : 'dim'}">${leftTxt(r)}</span></div></div>`).join('') : '<div class="c-red">一点吃的都没有了。</div>';
+    const menu = [...new Set((S.diet || []).flat())];
+    if ((S.diet || []).length >= 3 && menu.length === 1) h += `<div class="c-amber">这几天只吃${FN(menu[0])}，连着吃 5 天会有人吃腻了赌气。</div>`;
+    h += `<div class="gh">种子 <span class="dim">菜园过季、新开的地要用</span></div>`;
+    h += Object.keys(Sim.CROPS).map(k => `<div class="gi"><div class="row2"><span>${ic('bag')}<span class="c-amber">${FN(k)}</span> ×${S.seeds[k] || 0}</span>${S.seeds[k] > 0 ? `<button class="btn" data-eatseed="${k}">煮来吃 +${Sim.SEED_FOOD}</button>` : ''}</div><span class="dim">长在${cropSeasons(k)}；种下 ${Sim.CROPS[k].grow} 天后开始收，收成放 ${Sim.FOODS[k].life} 天。</span></div>`).join('');
+    return h;
+  }
   function gearHtml() {
     const v = selSurv != null ? Sim.byId(S, selSurv) : null, G = Sim.GEAR;
-    let h = '';
+    let h = foodHtml();
     const counts = {};
     for (const k of S.stash) counts[k] = (counts[k] || 0) + 1;
-    h += `<div class="gh">仓库</div>`;
+    h += `<div class="gh">装备</div>`;
     if (!S.stash.length) h += `<div class="dim">空的。搜刮有装备的地块（地图上的黄点）能捡到，也可以在据点打造。</div>`;
     for (const [k, n] of Object.entries(counts)) {
       let btn = '';
@@ -1093,7 +1127,9 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
         <li>开局先选城里的情况，再选你以前是做什么的。两样都会改变这一局的打法，每次三选一。</li>
         <li>天气：每晚的天气早就定了。每天早上有两三个人说说今晚会是什么天、看到了什么天象（“今晚”分页），各人看天的本事不一样，说话有没有把握跟准不准无关；楼长默认听战绩最好的人，也可以点别人改听他的，夜里的估算就按听的那个来。记事里会记谁说中了，住户卡片的提示里也有战绩。看错的人多半错成相近的天气，瞎猜的人就不一定了。收复电台能听广播，全准；特质“老寒腿”的人看天准，变天时膝盖还会疼。</li>
         <li>天气有 13 种：大雨天搜刮安全、存粮发霉，雷雨和大雨夜尖叫者叫不响，雷还可能劈中街上的楼；回南天存粮发霉得更凶；雾里看不清丧尸；酷暑白天好清理、夜里尸群多；寒流夜尸群少但要烧材料取暖，走了常常下霜，那天菜园没收成。有的天气是一段过程：外围环流之后一定是台风（尸群少、路障掉一层，第二天只能去相邻的街区），台风过后淹水一天（漂来材料、骑不了车）；东北季风刮起来，寒流多半跟着来。今晚的天气会延续到明天白天。</li>
-        <li>季节一年七个：初春、春末、梅雨、盛夏、秋老虎、深秋、寒冬，每季 9 天，开局自己选从哪个季节开始。季节决定多半是什么天气，也决定菜园的收成：初春、深秋减半，寒冬种不出东西。</li>
+        <li>季节一年七个：初春、春末、梅雨、盛夏、秋老虎、深秋、寒冬，每季 9 天，开局自己选从哪个季节开始。季节决定多半是什么天气，也决定菜园里什么种得活。</li>
+        <li>粮食分好几种（“仓库”分页）：罐头不会坏，米粮放 40 天，番薯 25 天、萝卜 14 天、丝瓜 7 天、青菜 4 天，每天先吃快坏的，放过期就扔了。连着 5 天只有同一种东西吃，会有人吃腻了赌气。冬天天冷，吃得多两成。</li>
+        <li>菜园要种子：青菜长在初春、春末、深秋，番薯从春末种到秋老虎，丝瓜盛夏收得最多，萝卜是冬天唯一种得活的。作物过季就枯了，会自动用仓库里的种子换种这一季最好的，种下后一两天才开始收。种子在菜市场、公园、五金行最容易翻到，收成时偶尔也能留下一包；饿急了可以把种子煮来吃，但明年就没得种了。</li>
         <li>没有时间限制。地图上的物资搜光就没了，长久下去要靠菜园：自己地盘里的楼都能开垦，废墟和拆过的楼能种一整片。尸群到一定程度就不会再涨，但尸巢会一个个醒过来。怎么样才算熬出头，要你自己去找。</li>
         <li>存粮够、还有空床，会有人来投奔。通常每 7 天一次尸潮。</li>
         <li>每个住户都有一个特质（名字旁边的字），鼠标停在卡片上能看说明。每次换季的第一天，从三张楼规里选一张，效果持续到这局结束；不同的楼规会把你推向不同的打法。</li>

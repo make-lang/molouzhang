@@ -35,14 +35,17 @@ for (let i = 0; i < 400; i++) {
       for (const v of s.surv.filter(v => v.fight >= 3)) s = Sim.setTask(s, v.id, { k: 'clear', x, y });
       break;
     }
+    // 粮食：偶尔把种子煮来吃
+    if (s.day % 13 === 0) { const k = Object.keys(s.seeds).find(k => s.seeds[k] > 0); if (k) s = Sim.eatSeeds(s, k); }
     // 天气：偶尔改听别人的
     if (s.wx && s.wx[0].say.length > 1 && s.day % 4 === 0) s = Sim.trustWx(s, s.day % s.wx[0].say.length);
     if (s.wxNow) wxSeen[s.wxNow] = (wxSeen[s.wxNow] || 0) + 1;
     if (Sim.forecast(s) && Sim.forecast(s).flood) wxSeen['淹水'] = (wxSeen['淹水'] || 0) + 1;
     const n0 = s.log.length;
     s = Sim.endDay(s);
-    for (const l of s.log.slice(n0)) for (const [k, re] of [['打造', /做出一件/], ['捡到', /找到了.*放进了仓库/], ['帽碎', /安全帽碎了/], ['掉落', /掉在了/], ['骑车', /骑车/], ['砍巢', /砍了尸巢/], ['端巢', /烧了尸巢/], ['巢长大', /尸巢又大了一圈|尸巢又长大了/], ['发现巢', /发现了一个尸巢/], ['新巢', /新的尸巢/], ['被咬', /被咬了！/], ['尸变', /已经不是/], ['治咬伤', /咬伤治好了/], ['翻到药', /翻到一个急救包/], ['台风', /台风刮了一整夜/], ['取暖', /份材料取暖/], ['冻病', /冻病了/], ['发霉', /发霉/], ['猜错天', /跟早上听/], ['说中', /说中了/], ['雷劈', /雷打中|一道雷/], ['巢醒', /尸巢醒了/], ['约直升机', /确认了降落点/], ['直升机走', /飞走了/], ['换季', /^入.*了。/], ['开垦', /开出/]]) if (re.test(l.msg)) gearOps[k] = (gearOps[k] || 0) + 1;
+    for (const l of s.log.slice(n0)) for (const [k, re] of [['打造', /做出一件/], ['捡到', /找到了.*放进了仓库/], ['帽碎', /安全帽碎了/], ['掉落', /掉在了/], ['骑车', /骑车/], ['砍巢', /砍了尸巢/], ['端巢', /烧了尸巢/], ['巢长大', /尸巢又大了一圈|尸巢又长大了/], ['发现巢', /发现了一个尸巢/], ['新巢', /新的尸巢/], ['被咬', /被咬了！/], ['尸变', /已经不是/], ['治咬伤', /咬伤治好了/], ['翻到药', /翻到一个急救包/], ['台风', /台风刮了一整夜/], ['取暖', /份材料取暖/], ['冻病', /冻病了/], ['发霉', /发霉/], ['猜错天', /跟早上听/], ['说中', /说中了/], ['雷劈', /雷打中|一道雷/], ['放坏', /放坏了/], ['下种', /种下了/], ['过季', /过季了/], ['吃腻', /吃不下了/], ['翻到种子', /种子。$/], ['煮种子', /种子煮了/], ['巢醒', /尸巢醒了/], ['约直升机', /确认了降落点/], ['直升机走', /飞走了/], ['换季', /^入.*了。/], ['开垦', /开出/]]) if (re.test(l.msg)) gearOps[k] = (gearOps[k] || 0) + 1;
     s = Sim.deserialize(Sim.serialize(s));
+    if (s.food !== s.pantry.reduce((a, b) => a + b.n, 0)) throw new Error(`第 ${s.day} 天：存粮总数 ${s.food} 跟粮仓对不上`);
   }
   days += s.day; if (s.over) endings[s.over.win ? s.over.ending : 'lose'] = (endings[s.over.win ? s.over.ending : 'lose'] || 0) + 1; else endings.stall = (endings.stall || 0) + 1;
 }
@@ -65,6 +68,15 @@ o12.v = 12;
 let m12 = Sim.deserialize(JSON.stringify(o12));
 if (m12.surv.some(v => v.sky == null) || !m12.wx[0].say.length) throw new Error('v12 存档迁移后应该有看天本事和住户的说法');
 for (let d = 0; d < 10 && !m12.over; d++) { while (m12.event) m12 = first(m12); m12 = Sim.endDay(m12); }
+// v13 存档：去掉粮仓、种子和作物，确认迁移后存粮总数不变、菜园种着东西
+let o13 = Sim.newGame(11, { season: 'spring' });
+while (o13.event) o13 = first(o13);
+for (let d = 0; d < 6; d++) { while (o13.event) o13 = first(o13); o13 = Sim.endDay(o13); }
+Object.assign(o13.tiles[o13.tiles.findIndex(t => t.t === 'base') + 1], { owned: true, farm: true });   // 据点右边那块当成开好的菜园
+delete o13.pantry; delete o13.seeds; delete o13.diet; o13.tiles.forEach(t => { delete t.crop; delete t.acc; });
+o13.v = 13;
+const f13 = o13.food, m13 = Sim.deserialize(JSON.stringify(o13));
+if (m13.pantry.reduce((a, b) => a + b.n, 0) !== f13 || !Sim.plots(m13).every(t => t.crop)) throw new Error('v13 存档迁移后粮仓要对得上、菜园要种着东西');
 console.log(`冒烟测试通过：400 局，平均撑到第 ${(days / 400).toFixed(1)} 天；v5 存档迁移后跑到第 ${m.day} 天`);
 console.log(`白天天气：${JSON.stringify(wxSeen)}`);
 console.log(`结局：${JSON.stringify(endings)}`);

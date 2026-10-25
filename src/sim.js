@@ -1,6 +1,7 @@
 // 末日楼长 · 模拟层 v0.2
 // 纯逻辑：所有函数接收 state、返回新 state，不碰 DOM。随机数种子存在 state 里，存档可完整复现。
 // v0.2：夜袭按边界逐块结算（扩张会拉长防线）；建筑可以拆掉换材料；食物充足时会有人来投奔。
+// v0.16：粮食分批：罐头、米粮、番薯、萝卜、丝瓜、青菜各有保质期，先吃快坏的；菜园要种子，作物看季节；天天吃同一种会吃腻；冬天吃得多。
 // v0.15：天气分得更细（13 种），有多天的过程（外围环流→台风→淹水，东北季风→寒流→霜）；预报改成住户各说各的，每人有藏着的看天本事，靠战绩分辨该听谁的。
 // v0.14：没有时间限制了。季节在一局里轮换（7 季，每季 9 天），尸群有上限，尸巢数量固定、有的在休眠；三个不明说的结局：叫救援、烧光尸巢、熬过冬天自给自足。
 // v0.13：天气和季节。每晚的天气提前掷好，白天只能看天象猜，可能猜错；季节决定这局的天气表，赢一局解锁下一个季节。
@@ -14,7 +15,7 @@
 // v0.3：住户有绑在地图上的牵挂（救人、取物、收回老家、别拆），有期限，达成会更卖力，放着不管会出事。
 const Sim = (() => {
   'use strict';
-  const VERSION = 13;
+  const VERSION = 14;
   const W = 8, H = 8;
   const SEASON_LEN = 9;     // 每季 9 天，7 季一年
   const HORDE_DAY_CAP = 20; // 尸群随天数增长，到这一天封顶
@@ -32,7 +33,7 @@ const Sim = (() => {
     base:     { name: '老公寓', beds: 6, def: 2, cost: 0, loot: [0, 0], strip: 0, desc: '你们的据点。铁门、铁窗、顶楼加盖。' },
     house:    { name: '住宅',   beds: 3, cost: 3, loot: [8, 3], strip: 8, recruit: 0.15, desc: '收复后 +3 床位。搜刮时可能遇到幸存者。' },
     school:   { name: '国小',   beds: 5, cost: 5, loot: [5, 5], strip: 12, recruit: 0.12, desc: '收复后 +5 床位。' },
-    park:     { name: '公园',   food: 3, cost: 3, loot: [2, 1], strip: 0, desc: '收复后改成菜园，每天 +3 食物。' },
+    park:     { name: '公园',   food: 3, cost: 3, loot: [2, 1], strip: 0, desc: '收复后改成一整片菜园，有种子才种得出东西；工具间里常有几包种子。' },
     market:   { name: '菜市场', food: 1, cost: 4, loot: [14, 2], strip: 6, desc: '存粮多。收复后每天 +1 食物。' },
     mart:     { name: '超市',   cost: 4, loot: [18, 3], strip: 10, desc: '存粮最多的地方，也最多丧尸。货架和冷柜拆下来全是好材料。' },
     hospital: { name: '医院',   heal: true, cost: 6, loot: [4, 4], strip: 10, desc: '收复后伤员恢复速度翻倍，被咬的人住一晚就能治好。' },
@@ -208,16 +209,37 @@ const Sim = (() => {
   const KNEE_WX = ['rain', 'thunder', 'outer', 'typhoon', 'monsoon', 'cold'];   // 变天：老寒腿的膝盖会疼
   // 看天的本事：每人一档，藏着不给看（瞎猜 / 一般 / 准），只能靠记事里的战绩去摸。说话有没有把握（v.bold）跟准不准无关
   const SKY_ACC = [0.4, 0.65, 0.85];
-  // 季节：一局里轮着来，每季 9 天。wx 是天气表，stay 是天气延续到下一晚的机会，farm 是菜园（公园、屋顶菜园）的收成倍率
+  // 季节：一局里轮着来，每季 9 天。wx 是天气表，stay 是天气延续到下一晚的机会。菜园种什么、收多少看 CROPS
   const SEASONS = {
-    early:  { name: '初春',   start: '开局温和', desc: '春寒料峭，常起雾、飘毛毛雨，还有回南天，存粮容易发霉。菜园刚下种，收成一半。', wx: { cloudy: 3, fog: 3, drizzle: 3, humid: 2, sunny: 2, cold: 1 }, stay: 0.45, farm: 0.5 },
-    spring: { name: '春末',   start: '开局温和', desc: '天气温和，多半是晴天和阴天，偶尔下雨、起雾、打雷。适合往外扩张。', wx: { sunny: 4, cloudy: 3, drizzle: 1, rain: 1, fog: 1, thunder: 1 }, stay: 0.4, farm: 1 },
-    plum:   { name: '梅雨',   start: '开局一般', desc: '大雨下个不停。雨天搜刮安全，尖叫者也引不来尸群，但存粮会发霉。', wx: { rain: 5, cloudy: 2, drizzle: 2, humid: 1, fog: 1, thunder: 1, sunny: 1 }, stay: 0.55, farm: 1 },
-    summer: { name: '盛夏',   start: '开局一般', desc: '白天热得丧尸发软，夜里却更吵；午后常有雷阵雨，偶尔会来台风。', wx: { sunny: 4, heat: 3, thunder: 3, rain: 1, cloudy: 1, typhoon: 1 }, stay: 0.45, farm: 1 },
-    autumn: { name: '秋老虎', start: '开局较难', desc: '还是很热，台风最多的季节。看到外围环流就该把路障堆高。', wx: { sunny: 3, heat: 2, typhoon: 2, thunder: 1, rain: 1, cloudy: 1 }, stay: 0.4, farm: 1 },
-    late:   { name: '深秋',   start: '开局最难', desc: '东北季风起了，阴雨一连好几天。菜园收成减半，该为冬天囤东西了。', wx: { cloudy: 3, drizzle: 2, monsoon: 2, fog: 2, rain: 1, sunny: 1, cold: 1 }, stay: 0.55, farm: 0.5 },
-    winter: { name: '寒冬',   start: '开局较难', desc: '寒流一波接一波，走了还会下霜。冷的夜里丧尸少，但要烧材料取暖；菜园种不出东西。', wx: { cloudy: 2, monsoon: 2, fog: 2, cold: 4, sunny: 1, drizzle: 1 }, stay: 0.5, farm: 0 },
+    early:  { name: '初春',   start: '开局温和', desc: '春寒料峭，常起雾、飘毛毛雨，还有回南天，存粮容易发霉。番薯、丝瓜还种不下去。', wx: { cloudy: 3, fog: 3, drizzle: 3, humid: 2, sunny: 2, cold: 1 }, stay: 0.45 },
+    spring: { name: '春末',   start: '开局温和', desc: '天气温和，多半是晴天和阴天，偶尔下雨、起雾、打雷。适合往外扩张，番薯可以下种了。', wx: { sunny: 4, cloudy: 3, drizzle: 1, rain: 1, fog: 1, thunder: 1 }, stay: 0.4 },
+    plum:   { name: '梅雨',   start: '开局一般', desc: '大雨下个不停。雨天搜刮安全，尖叫者也引不来尸群，但存粮会发霉。', wx: { rain: 5, cloudy: 2, drizzle: 2, humid: 1, fog: 1, thunder: 1, sunny: 1 }, stay: 0.55 },
+    summer: { name: '盛夏',   start: '开局一般', desc: '白天热得丧尸发软，夜里却更吵；午后常有雷阵雨，偶尔会来台风。青菜晒不活，丝瓜长得最好。', wx: { sunny: 4, heat: 3, thunder: 3, rain: 1, cloudy: 1, typhoon: 1 }, stay: 0.45 },
+    autumn: { name: '秋老虎', start: '开局较难', desc: '还是很热，台风最多的季节。看到外围环流就该把路障堆高。', wx: { sunny: 3, heat: 2, typhoon: 2, thunder: 1, rain: 1, cloudy: 1 }, stay: 0.4 },
+    late:   { name: '深秋',   start: '开局最难', desc: '东北季风起了，阴雨一连好几天。番薯快收不了了，该种萝卜、为冬天囤东西了。', wx: { cloudy: 3, drizzle: 2, monsoon: 2, fog: 2, rain: 1, sunny: 1, cold: 1 }, stay: 0.55 },
+    winter: { name: '寒冬',   start: '开局较难', desc: '寒流一波接一波，走了还会下霜。冷的夜里丧尸少，但要烧材料取暖；天冷吃得多，菜园只种得出一点萝卜。', wx: { cloudy: 2, monsoon: 2, fog: 2, cold: 4, sunny: 1, drizzle: 1 }, stay: 0.5 },
   };
+  // 粮食：life 是放几天会坏（0 = 不会坏）。搜刮带回罐头和米粮，菜园收的是作物
+  const FOODS = {
+    can:    { name: '罐头', life: 0 },
+    rice:   { name: '米粮', life: 40 },
+    potato: { name: '番薯', life: 25 },
+    radish: { name: '萝卜', life: 14 },
+    melon:  { name: '丝瓜', life: 7 },
+    greens: { name: '青菜', life: 4 },
+  };
+  // 作物：要种子才种得下去，种下后 grow 天开始收；sea 是各季节的收成倍率（0 = 种不活，季节一过就枯了，要换种别的）
+  const CROPS = {
+    greens: { grow: 1, sea: { early: 1, spring: 1, plum: 0.5, summer: 0, autumn: 0.5, late: 1, winter: 0 } },
+    potato: { grow: 3, sea: { early: 0, spring: 1, plum: 1, summer: 1, autumn: 1, late: 0.5, winter: 0 } },
+    melon:  { grow: 2, sea: { early: 0, spring: 0.5, plum: 1, summer: 1.5, autumn: 0.5, late: 0, winter: 0 } },
+    radish: { grow: 2, sea: { early: 1, spring: 0, plum: 0, summer: 0, autumn: 0, late: 1, winter: 0.5 } },
+  };
+  const cropK = (k, se) => CROPS[k].sea[se] || 0;
+  // 搜刮带回的粮食种类（其余地方一半罐头一半米粮），和翻到种子的机会
+  const SCAV_CAN = { mart: 0.6, market: 0.3 };
+  const SEED_P = { market: 0.3, park: 0.4, hardware: 0.2, mart: 0.1, house: 0.08, school: 0.05 };
+  const SEED_FOOD = 2;   // 一包种子煮来吃顶几份
   const SEASON_ORDER = ['early', 'spring', 'plum', 'summer', 'autumn', 'late', 'winter'];
   const seasonOf = (s, day = s.day) => SEASON_ORDER[(SEASON_ORDER.indexOf(s.start) + Math.floor((Math.max(1, day) - 1) / SEASON_LEN)) % SEASON_ORDER.length];
   // 这个季节可能出现的天气（连同过程里的环节），猜错时从这里挑
@@ -262,25 +284,90 @@ const Sim = (() => {
 
   // ---------- 派生量 ----------
   const beds = s => owned(s).reduce((a, t) => a + (eff(t).beds || 0) + (has(s, 'bunks') && !t.gutted && (t.t === 'house' || t.t === 'school') ? 2 : 0), 0);
-  // farm：菜园收成倍率，不传就按当季（公园和屋顶菜园看季节，菜市场不看）
-  const farmYield = t => t.t === 'ruin' || t.gutted ? FARM_FOOD : 1;
+  // 菜园：开垦出来的地和收复的公园。一整片（废墟、拆过的楼、公园）收 3，完好的楼院子里收 1，再乘作物的季节倍率
+  const farmYield = t => t.t === 'ruin' || t.gutted || t.t === 'park' ? FARM_FOOD : 1;
+  const plots = s => owned(s).filter(t => t.farm || (t.t === 'park' && !t.gutted));
+  const ripe = (s, t) => !!t.crop && s.day - t.crop.d >= CROPS[t.crop.k].grow;
+  // 每天的产出（估算，不算零头）。farm 给了就当每块菜园都种着、按这个倍率收（看潜力，脚本和村子结局用）；不传就按种着的作物、当季和霜
   const income = (s, farm) => {
-    if (farm == null) farm = (s.start ? SEASONS[seasonOf(s)].farm : 1) * (s.wxNow === 'frost' ? 0 : 1);   // 下霜那天菜园没收成
+    const se = s.start ? seasonOf(s) : 'spring', frost = s.wxNow === 'frost' ? 0 : 1;
     let food = 0, mat = 0;
     for (const t of owned(s)) {
-      const f = eff(t).food || 0;
-      food += t.t === 'park' && !t.gutted ? Math.floor(f * farm) : f; mat += eff(t).mat || 0;
-      if (t.farm) food += Math.floor(farmYield(t) * farm);
+      if (t.t !== 'park') food += eff(t).food || 0;
+      mat += eff(t).mat || 0;
       if (has(s, 'salvage') && t.t === 'ruin') mat++;
     }
-    if (has(s, 'rooftop')) food += Math.floor(2 * farm);
+    for (const t of plots(s)) food += Math.floor(farmYield(t) * (farm != null ? farm : ripe(s, t) ? cropK(t.crop.k, se) * frost : 0));
+    if (has(s, 'rooftop')) food += Math.floor(2 * (farm != null ? farm : cropK('greens', se) * frost));
     return { food, mat };
   };
   // 每天吃掉的食物
+  // 冬天天冷，吃得多两成
   const foodUse = s => {
     const n = s.surv.length + s.surv.filter(v => tr(v, 'bigeater')).length + (s.dog ? 1 : 0);
-    return has(s, 'ration') ? Math.ceil(n * 0.7) : n;
+    const u = has(s, 'ration') ? Math.ceil(n * 0.7) : n;
+    return s.start && seasonOf(s) === 'winter' ? Math.ceil(u * 1.2) : u;
   };
+
+  // ---------- 粮仓 ----------
+  // s.pantry 是分批的存粮 [{ k, n, exp }]，exp 是放到哪天晚上会坏（0 = 不会坏）。s.food 一直等于总数：
+  // 事件、交易这些老代码直接改 s.food，syncFood 把差额补进粮仓（多出来的算罐头），或者按先坏先吃的顺序扣掉
+  const pantrySum = s => s.pantry.reduce((a, b) => a + b.n, 0);
+  function stock(s, k, n, exp) {   // 只进粮仓，不动 s.food
+    if (n <= 0) return;
+    const b = s.pantry.find(b => b.k === k && b.exp === exp);
+    if (b) b.n += n; else s.pantry.push({ k, n, exp });
+  }
+  function addFood(s, k, n) { if (n <= 0) return; stock(s, k, n, FOODS[k].life ? s.day + FOODS[k].life : 0); s.food += n; }
+  function draw(s, n) {   // 只出粮仓：先吃快坏的，返回吃掉了哪几种、各几份
+    const out = {};
+    s.pantry.sort((a, b) => (a.exp || 1e9) - (b.exp || 1e9));
+    for (const b of s.pantry) { if (n <= 0) break; const m = Math.min(n, b.n); b.n -= m; n -= m; out[b.k] = (out[b.k] || 0) + m; }
+    s.pantry = s.pantry.filter(b => b.n > 0);
+    return out;
+  }
+  function syncFood(s) {
+    if (!s.pantry) s.pantry = [];
+    s.food = Math.max(0, s.food);
+    const d = s.food - pantrySum(s);
+    if (d > 0) stock(s, 'can', d, 0); else if (d < 0) draw(s, -d);
+  }
+  // 种菜：没种东西、或者种的作物这一季种不活的菜园，用仓库里的种子换种这一季收成最好的（一样好就挑耐放的）
+  function plant(s) {
+    const se = seasonOf(s), put = {}, died = [];
+    for (const t of plots(s)) {
+      if (t.crop && cropK(t.crop.k, se) > 0) continue;
+      const k = Object.keys(CROPS).filter(k => (s.seeds[k] || 0) > 0 && cropK(k, se) > 0).sort((a, b) => cropK(b, se) - cropK(a, se) || FOODS[b].life - FOODS[a].life)[0];
+      if (t.crop) died.push(FOODS[t.crop.k].name);
+      if (!k) { t.crop = null; continue; }
+      s.seeds[k]--; t.crop = { k, d: s.day }; t.acc = 0;
+      put[k] = (put[k] || 0) + 1;
+    }
+    const msg = (died.length ? `菜园里的${[...new Set(died)].join('、')}过季了。` : '') + (Object.keys(put).length ? `种下了${Object.keys(put).map(k => `${put[k]} 块${FOODS[k].name}`).join('、')}。` : '');
+    const bare = plots(s).filter(t => !t.crop).length;
+    if (msg || (died.length && bare)) s.log.push({ d: s.day, tone: bare ? 'bad' : 'info', msg: msg + (bare ? `${bare} 块菜园没有合适的种子，空着。` : '') });
+  }
+  // 收成：零头攒着（t.acc），下霜那天没收成；收成的时候偶尔留下一包种子
+  function harvest(s) {
+    const se = seasonOf(s), got = {};
+    for (const t of plots(s)) {
+      if (!ripe(s, t) || s.wxNow === 'frost') continue;
+      t.acc = (t.acc || 0) + farmYield(t) * cropK(t.crop.k, se);
+      const n = Math.floor(t.acc); t.acc -= n;
+      if (n > 0) { addFood(s, t.crop.k, n); got[t.crop.k] = (got[t.crop.k] || 0) + n; s.stats.harvest = (s.stats.harvest || 0) + n; if (rand(s) < 0.1) s.seeds[t.crop.k] = (s.seeds[t.crop.k] || 0) + 1; }
+    }
+    if (has(s, 'rooftop') && s.wxNow !== 'frost') addFood(s, 'greens', Math.floor(2 * cropK('greens', se)));
+    for (const t of owned(s)) if (t.t !== 'park' && eff(t).food) addFood(s, 'rice', eff(t).food);   // 菜市场
+    return got;
+  }
+  // 把一包种子煮来吃
+  function eatSeeds(s0, k) {
+    if (!s0.seeds || !(s0.seeds[k] > 0)) return s0;
+    const s = clone(s0);
+    syncFood(s); s.seeds[k]--; addFood(s, 'rice', SEED_FOOD);
+    s.log.push({ d: s.day, tone: 'info', msg: `把一包${FOODS[k].name}种子煮了，+${SEED_FOOD} 食物。` });
+    return s;
+  }
   const hasHospital = s => owned(s).some(t => eff(t).heal);
 
   // 尸群总量：随天数增长，每 7 天一次尸潮（尸潮频繁的城市每 5 天一次，但规模小一些）
@@ -553,9 +640,10 @@ const Sim = (() => {
   function newGame(seed, opt = {}) {
     seed = (seed == null ? Math.floor(Math.random() * 1e9) : seed) | 0;
     const s = {
-      v: VERSION, seed, rng: seed, day: 1, food: 21, mat: 6, fort: 2, wall: 12, wallMax: 12,
+      v: VERSION, seed, rng: seed, day: 1, food: 27, mat: 6, fort: 2, wall: 12, wallMax: 12,
       tiles: [], surv: [], gone: [], nextId: 1, rel: [], log: [], over: null, rescueDay: null, event: null, rules: [], brute: false,
       city: null, origin: null, queue: [], camp: null, sos: null, dog: false, stash: [], season: null, start: null, wxNow: null, wx: null, radio: false, winterIn: false,
+      pantry: [{ k: 'can', n: 9, exp: 0 }, { k: 'rice', n: 18, exp: 1 + FOODS.rice.life }], seeds: { greens: 2, potato: 2, radish: 1, melon: 1 }, diet: [],
       stats: { killed: 0, recruited: 0, lost: 0, tilesLost: 0, stripped: 0 },
     };
     const bx = 1, by = 6;
@@ -786,7 +874,7 @@ const Sim = (() => {
       return { gain: `可清掉 ${lo === hi ? lo : lo + '–' + hi} 只`, risk: clearRisk(s, v, t.z) };
     }
     if (k === 'craft') return { gain: `打造${GEAR[x].name}，耗 ${craftCost(v, x)} 材料；夜里照样守据点`, risk: 0 };
-    if (k === 'farm') return { gain: `开垦进度 +${Math.ceil((v.build + (tr(v, 'handy') ? 1 : 0)) * wxWork(s))}，还差 ${TILL - (t.till || 0)}；开好后每天 +${farmYield(t)} 食物（看季节）${farmYield(t) < FARM_FOOD ? '。楼还在，只能在院子里种，拆掉再开垦能种一整片' : ''}`, risk: 0 };
+    if (k === 'farm') return { gain: `开垦进度 +${Math.ceil((v.build + (tr(v, 'handy') ? 1 : 0)) * wxWork(s))}，还差 ${TILL - (t.till || 0)}；开好后用仓库里的种子下种，每天收 ${farmYield(t)} 份再乘作物这一季的倍率${farmYield(t) < FARM_FOOD ? '。楼还在，只能在院子里种，拆掉再开垦能种一整片' : ''}`, risk: 0 };
     if (k === 'claim') return { gain: `进度 +${Math.ceil((v.build + (tr(v, 'handy') ? 1 : 0)) * wxWork(s))}，还差 ${TYPES[t.t].cost - t.prog}`, risk: 0 };
     if (k === 'strip') {
       const g = Math.min(t.strip, Math.ceil(stripYield(s, v) * wxWork(s)));
@@ -900,7 +988,7 @@ const Sim = (() => {
         } else L(`${who}在${nm}清掉了 ${kills} 只。` + (t.z === 0 ? '这里暂时干净了，可以动工收复，或者拆掉。' : `还剩 ${t.z} 只。`), t.z === 0 ? 'good' : 'info');
       } else if (k === 'farm') {
         t.till = (t.till || 0) + Math.ceil(g.reduce((a, v) => a + Math.max(1, v.build + bonus[v.id] + (tr(v, 'handy') ? 1 : 0)), 0) * wxWork(s));
-        if (t.till >= TILL) { t.farm = true; L(`${who}在${nm}翻好了土，开出${farmYield(t) < FARM_FOOD ? '几畦小菜园' : '一整片菜园'}。每天 +${farmYield(t)} 食物，冬天种不出东西。`, 'good'); }
+        if (t.till >= TILL) { t.farm = true; L(`${who}在${nm}翻好了土，开出${farmYield(t) < FARM_FOOD ? '几畦小菜园' : '一整片菜园'}，明天下种。`, 'good'); }
         else L(`${who}在${nm}翻土，开垦进度 ${t.till}/${TILL}。`);
       } else if (k === 'claim') {
         if (t.z > 0) { L(`${nm}又有丧尸游荡进来，工程停了。`, 'bad'); continue; }
@@ -910,6 +998,7 @@ const Sim = (() => {
         if (t.prog >= cost) {
           t.owned = true; t.prog = cost;
           L(`${nm}收复了，${who}留下来守第一夜。${t.gutted ? '拆过的楼只能当通道用。' : TYPES[t.t].desc}`, 'good');
+          if (t.t === 'park' && !t.gutted) for (let i = 0; i < 2; i++) { const sk = pick(s, Object.keys(CROPS)); s.seeds[sk] = (s.seeds[sk] || 0) + 1; L(`公园的工具间里还有一包${FOODS[sk].name}种子。`); }
           for (const v of g) v.task = { k: 'defend', x, y };   // 施工队留下来守第一夜
           takeGear(t, who);
           for (const u of s.surv) if (u.want && u.want.k === 'reclaim' && u.want.x === x && u.want.y === y)
@@ -957,7 +1046,9 @@ const Sim = (() => {
             L(`${v.name}在${nm}的楼梯间发现了躲着的${nv.name}（${nv.job}），带回来了。`, 'good');
           }
         }
-        s.food += gf; s.mat += gm;
+        for (let i = 0; i < gf; i++) addFood(s, rand(s) < (SCAV_CAN[t.t] ?? 0.5) ? 'can' : 'rice', 1);
+        s.mat += gm;
+        if (gf + gm > 0 && !t.gutted && rand(s) < (SEED_P[t.t] || 0)) { const sk = pick(s, Object.keys(CROPS)); s.seeds[sk] = (s.seeds[sk] || 0) + 1; L(`${who}在${nm}翻到一包${FOODS[sk].name}种子。`, 'good'); }
         const kitP = { hospital: 0.25, mart: 0.12, house: 0.05 }[t.t] || 0;   // 药柜、货架、别人家的抽屉
         if (gf + gm > 0 && !t.gutted && rand(s) < kitP) { s.stash.push('medkit'); L(`${who}在${nm}翻到一个急救包。`, 'good'); }
         if (g.some(v => !v.dead && v.inj === 0)) takeGear(t, who);
@@ -992,10 +1083,19 @@ const Sim = (() => {
       }
     }
 
-    // 产出、吃饭
-    const inc = income(s);
-    s.food += inc.food; s.mat += inc.mat;
-    s.food -= foodUse(s);
+    // 产出、吃饭：先吃快坏的
+    syncFood(s);
+    harvest(s);
+    s.mat += income(s).mat;
+    const need = foodUse(s), ate = draw(s, Math.min(need, s.food));
+    s.food -= need;
+    // 吃腻了：连着 5 天都只有同一种东西吃，每天两成机会有人赌气
+    s.diet = (s.diet || []).concat([Object.keys(ate)]).slice(-5);
+    const menu = new Set(s.diet.flat());
+    if (s.diet.length >= 5 && menu.size === 1 && rand(s) < 0.2) {
+      const cand = s.surv.filter(v => ready(v));
+      if (cand.length) { const v = pick(s, cand); v.sulk = Math.max(v.sulk, 2); L(`连着好几天只有${FOODS[[...menu][0]].name}吃，${v.name}吃不下了，明天不想干活。`, 'bad'); }
+    }
     if (has(s, 'ration') && s.surv.length && rand(s) < 0.1) {
       const v = pick(s, s.surv); v.sulk = Math.max(v.sulk, 2);
       L(`${v.name}受不了配给，跟你吵了一架，明天不出门。`, 'bad');
@@ -1015,6 +1115,12 @@ const Sim = (() => {
       const [per, k] = s.wxNow === 'rain' ? [4, 0.2] : [2, 0.15], extra = s.food - s.surv.length * per;
       if (extra > 0) { const rot = Math.max(1, Math.floor(extra * k)); s.food -= rot; L(`${s.wxNow === 'rain' ? '下了一天大雨' : '回南天到处湿答答'}，${rot} 份存粮发霉了。`); }
     }
+    // 放坏了的扔掉
+    syncFood(s);
+    const bad = {};
+    s.pantry = s.pantry.filter(b => { if (b.exp && b.exp <= s.day) { bad[b.k] = (bad[b.k] || 0) + b.n; s.food -= b.n; return false; } return true; });
+    s.stats.spoiled = (s.stats.spoiled || 0) + Object.values(bad).reduce((a, b) => a + b, 0);
+    if (Object.keys(bad).length) L(`${Object.keys(bad).map(k => `${bad[k]} 份${FOODS[k].name}`).join('、')}放坏了，只能扔掉。`, 'bad');
 
     // 夜袭：逐块结算
     const plan = nightPlan(s, true), wx = plan.wx;
@@ -1214,6 +1320,7 @@ const Sim = (() => {
     }
     if (s.over) { s.over.score = score(s); L(s.over.reason, s.over.win ? 'good' : 'bad'); }
     if (!s.over && s.wx) rollWx(s);
+    if (!s.over && s.start) plant(s);
     // 明晚会不会有巨汉：白天就能从远处的动静判断出来（工地旁边来得早、来得多）
     const hb = horde(s.day, s), bd = s.city === 'builders' ? [7, 14, 0.04, 0.35] : [10, 21, 0.03, 0.3];
     const bn = s.city === 'builders' ? 0.06 * awake(s).length : 0;   // 工地旁边的巢里会长出巨汉
@@ -1231,6 +1338,7 @@ const Sim = (() => {
 
     updateSeen(s);
     if (!s.over) rollEvent(s);
+    syncFood(s);   // 早上的黑市、事件也可能动到存粮
     if (s.log.length > 240) s.log = s.log.slice(-240);
     return s;
   }
@@ -1532,7 +1640,13 @@ const Sim = (() => {
     return EVENTS[s.event.id](s, s.event.p);
   }
 
+  // 事件直接改 s.food，结算完对一下粮仓
   function resolveEvent(s0, i) {
+    const s = resolveEvent0(s0, i);
+    if (s !== s0 && s.pantry) syncFood(s);
+    return s;
+  }
+  function resolveEvent0(s0, i) {
     const s = clone(s0);
     if (!s.event) return s;
     const view = EVENTS[s.event.id](s, s.event.p), c = view.choices[i];
@@ -1779,12 +1893,21 @@ const Sim = (() => {
       s.wxQ = [];
       if (s.wx) { readSky(s, s.wx[0], s.day, true); readSky(s, s.wx[1], s.day + 1, false); }
     }
+    if (s.v < 14) { // v13 → v14：粮食分批、种子。原来的存粮一半罐头一半米粮；已有的菜园白送这一季能种的作物，已经长好
+      const c = Math.ceil(s.food / 2);
+      s.pantry = []; stock(s, 'can', c, 0); stock(s, 'rice', s.food - c, s.day + 30);
+      s.seeds = { greens: 2, potato: 2, radish: 1, melon: 1 }; s.diet = [];
+      if (s.start) {
+        const se = seasonOf(s), k = Object.keys(CROPS).sort((a, b) => cropK(b, se) - cropK(a, se))[0];
+        for (const t of plots(s)) { t.crop = { k, d: s.day - 99 }; t.acc = 0; }
+      }
+    }
     s.v = VERSION;
     return s;
   }
 
   return {
-    VERSION, W, H, SEASON_LEN, FARM_FOOD, TILL, farmYield, WX, FLOOD_TXT, KNEE_WX, trustWx, SEASONS, SEASON_ORDER, seasonOf, forecast, selfFed, landing, INF_DAYS, NEST_R, NEST_HORDE, HORDE_BASE, nestHp, nestLv, nestZ, nestHint, FORT_MAX, BAR_MAX, TYPES, TRAITS, RULES, CITIES, ORIGINS, GEAR, equip, useMedkit, bikeReach, nestReach, canGo, craftCost, barMax, foodUse, has, surgeEvery, surgeIn,
+    VERSION, W, H, SEASON_LEN, FARM_FOOD, TILL, farmYield, FOODS, CROPS, cropK, plots, ripe, eatSeeds, SEED_FOOD, SEED_P, WX, FLOOD_TXT, KNEE_WX, trustWx, SEASONS, SEASON_ORDER, seasonOf, forecast, selfFed, landing, INF_DAYS, NEST_R, NEST_HORDE, HORDE_BASE, nestHp, nestLv, nestZ, nestHint, FORT_MAX, BAR_MAX, TYPES, TRAITS, RULES, CITIES, ORIGINS, GEAR, equip, useMedkit, bikeReach, nestReach, canGo, craftCost, barMax, foodUse, has, surgeEvery, surgeIn,
     newGame, endDay, setTask, canDo, preview, resolveEvent, eventView,
     nightPlan, tileDefense, horde, beds, income, owned, tile, reachable, frontier, byId, ready, score, eff, tname,
     arrivalChance, serialize, deserialize, SKILL,
