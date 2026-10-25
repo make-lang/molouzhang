@@ -280,6 +280,13 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     spear:   ['......ww', '.....bw.', '....b...', '...b....', '..b.....', '.b......', 'b.......', '........'],
     bow:     ['..bb....', '.b..w...', 'b...w...', 'b...w...', 'b...w...', '.b..w...', '..bb....', '........'],
     xbow:    ['.bbbbb..', '...b....', '..gbg...', '...b....', '...b....', '...b....', '........', '........'],
+    parts:   ['...g....', '.g.g.g..', '..ggg...', 'gggwggg.', '..ggg...', '.g.g.g..', '...g....', '........'],
+    powder:  ['........', '...#....', '..###...', '.##o##..', '#######.', '#######.', '........', '........'],
+    ammo:    ['..y.....', '.yYy....', '.yyy....', '.bbb....', '.bbb....', '.bbb....', '........', '........'],
+    bullets: ['..y..y..', '.yYyyYy.', '.yyyyyy.', '.bbbbbb.', '.bbbbbb.', '.bbbbbb.', '........', '........'],
+    pistol:  ['........', 'gggggg..', 'gGGGGgg.', 'ggggggg.', '...bb...', '...bb...', '....b...', '........'],
+    shotgun: ['........', '........', 'gggggggg', 'gwwwwbbb', '....bbbb', '.....bb.', '........', '........'],
+    rifle:   ['........', '......g.', 'gggggggg', '....bbbb', '...bb.b.', '..bb....', '........', '........'],
     arrows:  ['.......w', '......w.', '.....b..', '....b...', '...b....', 'r.b.....', '.rr.....', 'rr......'],
     flood:   ['........', '........', '.cc..cc.', 'c..cc..c', '........', '.cc..cc.', 'c..cc..c', '........'],
   };
@@ -366,7 +373,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
   // 静态的街景（路面、楼、阴影、亮灯的窗）按地块状态画一次缓存起来；丧尸、灯光、标记这些会动的每帧重画
   const TS = 48;
   const cv = $('map'), ctx = cv.getContext('2d');
-  const TASKC = { craft: '#f0b04a', defend: '#74a6dc', fortify: '#f0b04a', scav: '#ebe4cf', clear: '#e2654b', claim: '#f0b04a', strip: '#b07a3a', rescue: '#ea92b2', farm: '#7fb257', grove: '#5a8a3a', log: '#b07a3a', build: '#f0b04a' };
+  const TASKC = { craft: '#f0b04a', defend: '#74a6dc', fortify: '#f0b04a', scav: '#ebe4cf', clear: '#e2654b', claim: '#f0b04a', strip: '#b07a3a', rescue: '#ea92b2', farm: '#7fb257', grove: '#5a8a3a', log: '#b07a3a', build: '#f0b04a', work: '#c88a3e', fix: '#8a93a8' };
   const isBaseT = t => t.t === 'base';
   function hash(x, y, k) { let h = (x * 374761393 + y * 668265263 + k * 2147483647 + S.seed) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
   const px = (x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(x, y, w, h); };
@@ -537,6 +544,30 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
       P(8, 32, 30, 1, '#575c64');
       P(3, 30, 1, 13, '#b8a070'); P(6, 30, 1, 13, '#b8a070'); for (let i = 32; i < 43; i += 3) P(3, i, 4, 1, '#b8a070');   // 梯子
       P(39, 38, 4, 5, '#3f78b8'); P(39, 38, 4, 1, '#6fa0d8');
+    },
+    gas(P, r, lit) {   // 加油站：大雨棚、两台加油机、后面一间小店
+      P(5, 26, 38, 17, '#3a3c40');
+      P(4, 8, 40, 4, '#c24a40'); P(4, 12, 40, 2, '#ebe4cf'); P(4, 14, 40, 1, 'rgba(0,0,0,.4)');
+      P(8, 14, 2, 16, '#8d939b'); P(38, 14, 2, 16, '#8d939b');
+      for (const x of [14, 28]) { P(x, 22, 6, 9, '#d8463a'); P(x + 1, 23, 4, 3, lit ? '#ffe9a8' : '#3a3226'); P(x + 2, 31, 2, 1, '#2a2a2a'); P(x + 6, 24, 1, 5, '#2a2a2a'); }
+      block(P, 30, 32, 13, 3, 8, '#6a655e', '#b8b2a4'); win(P, 33, 37, 7, 3, lit, r(3) > 0.5 ? r(4) : 0);
+      P(7, 36, 6, 7, '#7a6a52'); P(7, 36, 6, 1, '#a89878');   // 油桶
+    },
+    garage(P, r, lit) {   // 修车厂：铁皮屋顶、两扇大铁卷门、门口一台拆了轮子的车
+      block(P, 4, 6, 40, 6, 26, '#7a6a5a', '#8a8f94');
+      for (let i = 5; i < 44; i += 3) P(i, 6, 1, 6, '#6a5a4a');
+      P(7, 15, 34, 3, '#3f78b8'); P(10, 16, 9, 1, '#ebe4cf'); P(22, 16, 14, 1, '#ebe4cf');
+      shutter(P, 7, 21, 15, 11, lit); shutter(P, 26, 21, 15, 11, false);
+      P(10, 36, 16, 6, '#4f6a8a'); P(13, 34, 9, 3, '#6a88aa'); P(14, 35, 3, 1, '#a8c0d8'); P(11, 41, 3, 2, '#1a1a1a'); P(22, 41, 3, 2, '#3a3a3a');
+      for (let i = 0; i < 3; i++) P(30 + i * 4, 39, 3, 3, '#2a2a2a');   // 一叠轮胎
+    },
+    chemplant(P, r, lit) {   // 化工厂：两座圆罐、一根烟囱、管线
+      P(5, 5, 38, 38, '#3e4042');
+      for (const [x, y] of [[7, 10], [20, 10]]) { P(x, y, 11, 16, '#b8bcc0'); P(x, y, 11, 2, '#dfe3e6'); P(x + 1, y + 6, 9, 1, '#8a8f94'); P(x + 1, y + 12, 9, 1, '#8a8f94'); P(x + 2, y + 3, 2, 10, '#e6eaee'); }
+      P(36, 4, 4, 22, '#8a5a3a'); P(36, 4, 4, 2, '#c24a40'); P(36, 9, 4, 1, '#ebe4cf');
+      P(8, 28, 32, 2, '#6c7278'); P(18, 26, 2, 4, '#6c7278'); P(31, 26, 2, 4, '#6c7278');
+      block(P, 8, 31, 30, 3, 9, '#5a5550', '#8f8a80'); for (let c = 0; c < 4; c++) win(P, 11 + c * 7, 35, 4, 3, lit, r(20 + c) > 0.5 ? r(30 + c) : 0, true);
+      P(42, 38, 1, 5, '#e8c84a'); P(41, 37, 3, 1, '#e8c84a');
     },
     temple(P, r, lit) {   // 宫庙：燕尾脊、红柱、灯笼、门口香炉
       P(5, 5, 38, 38, '#4a4640'); for (let i = 7; i < 43; i += 4) P(5, i, 38, 1, '#423e39');
@@ -791,7 +822,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
   const pct = p => Math.round(p * 100) + '%';
   const riskCls = p => p >= 0.3 ? 'c-red' : p >= 0.12 ? 'c-amber' : 'c-good';
   const where = (x, y) => Sim.tname(Sim.tile(S, x, y));
-  const LABEL = { build: '造工事', grove: '种树', log: '伐木', farm: '开垦', craft: '打造', scav: '搜刮', clear: '清理', claim: '收复', strip: '拆除', defend: '驻守', fortify: '加固', rescue: '救人' };
+  const LABEL = { work: '开工', fix: '维修', build: '造工事', grove: '种树', log: '伐木', farm: '开垦', craft: '打造', scav: '搜刮', clear: '清理', claim: '收复', strip: '拆除', defend: '驻守', fortify: '加固', rescue: '救人' };
   const daysLeft = w => w.until - S.day;
   function taskText(v) {
     if (v.inf === -1) return { t: '被咬 · 撑不过今天了', hurt: true };
@@ -826,9 +857,10 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
       <span class="res" title="${S.season ? Sim.SEASONS[S.season].desc : ''}">${ic('sun')} 第 ${S.day} 天${S.season ? `<small>${Sim.SEASONS[S.season].name} ${sd}/${Sim.SEASON_LEN}</small>` : ''}</span>
       <span class="res" title="食物：库存 / 每天净变化（明天的收成减去吃掉的）\n${pantryTxt()}">${ic('food', '食物')}<span class="${S.food + net < 0 ? 'c-red' : ''}">${S.food}</span><small class="${net < 0 ? 'c-amber' : ''}">${net >= 0 ? '+' : ''}${net}</small></span>
       <span class="res" title="木料：堆路障、取暖、做木器">${ic('mat', '木料')}${S.mat}${inc.mat ? `<small>+${inc.mat}</small>` : ''}</span>
-      <span class="res" title="废铁：焊据点铁窗、打造铁器、铁丝网">${ic('iron', '废铁')}${S.iron || 0}${inc.iron ? `<small>+${inc.iron}</small>` : ''}</span>
-      <span class="res" title="化学品：做急救包、探照灯的燃料">${ic('chem', '化学品')}${S.chem || 0}</span>
+      <span class="res" title="废铁：焊据点铁窗、打造铁器、铁丝网\n零件 ${S.parts || 0}（修车厂敲的，做弩要用）">${ic('iron', '废铁')}${S.iron || 0}${inc.iron ? `<small>+${inc.iron}</small>` : ''}</span>
+      <span class="res" title="化学品：做急救包、探照灯的燃料\n火药 ${S.powder || 0}（化工厂配的，压子弹要用）">${ic('chem', '化学品')}${S.chem || 0}</span>
       ${S.arrow || S.surv.some(u => u.gear === 'bow' || u.gear === 'xbow') ? `<span class="res" title="箭：弓和弩每晚每人用 1 支，天亮捡回一半">${ic('arrow', '箭')}${S.arrow || 0}</span>` : ''}
+      ${S.ammo || S.surv.some(u => u.gear && Sim.GEAR[u.gear].shot === 'ammo') ? `<span class="res" title="子弹：枪每晚用掉，打掉就没了；枪声会把附近的丧尸引过来">${ic('ammo', '子弹')}${S.ammo || 0}</span>` : ''}
       <span class="res" title="住户 / 床位">${ic('bed', '床位')}${S.surv.length}<small>/${beds}</small></span>
       <span class="res" title="铁门耐久">${ic('gate', '铁门')}<span class="hp${S.wall <= 4 ? ' low' : ''}"><i style="width:${Math.max(0, S.wall / S.wallMax * 100)}%"></i></span><small>${S.wall}</small></span>
       ${wxHud()}
@@ -904,6 +936,8 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     farm: ['开垦菜园', '要有种子才种得出东西'],
     grove: ['种树', '废墟上种一片树，长成后每天出木料'],
     log: ['伐木', '整片砍掉换木料，树要从头再长'],
+    work: ['驻场开工', '机器开一天掉 1 点耐久，会吵'],
+    fix: ['维修机器', `耗 ${Sim.costTxt(Sim.FIX)}`],
   };
   const STATE_TXT = { safe: '守得住', risk: '看运气', fail: '守不住' };
   const STATE_CLS = { safe: 'c-good', risk: 'c-amber', fail: 'c-red' };
@@ -919,6 +953,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     if (k === 'farm') return t.owned && !base && !t.farm && !t.grove && t.t !== 'park';
     if (k === 'grove') return t.owned && !base && !t.farm && !t.grove && (t.t === 'ruin' || t.gutted);
     if (k === 'log') return t.owned && Sim.grown(t);
+    if (k === 'work' || k === 'fix') return t.owned && !!Sim.WORKS[t.t] && !t.gutted;
     if (k === 'rescue') return (S.sos && S.sos.x === x && S.sos.y === y) || S.surv.some(u => u.want && u.want.k === 'rescue' && u.want.x === x && u.want.y === y);
   }
   const onTile = (v, x, y) => isBaseT(Sim.tile(S, x, y)) ? (v.task.x == null || (v.task.x === x && v.task.y === y)) : (v.task.x === x && v.task.y === y);
@@ -993,6 +1028,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
       } else h += `<div class="box safe dim">${ic('moon')} 在地盘内侧，今晚安全。</div>`;
     }
     const v = selSurv != null ? Sim.byId(S, selSurv) : null;
+    if (t.owned && Sim.WORKS[t.t] && !t.gutted) { const Wk = Sim.WORKS[t.t], c = Sim.cond(t); h += `<div class="box ${c > 0 ? 'safe' : 'fail'} dim">工厂：${Wk.name}，${Object.keys(Wk.use).length ? `每人用 ${Sim.costTxt(Wk.use)}、` : ''}出 ${Sim.RES[Wk.out].name}。机器耐久 <span class="${c > 2 ? 'c-good' : 'c-red'}">${c}/${Sim.COND_MAX}</span>，开工一天掉 1，掉到 0 就停。开机的那天，旁边的街区可能多出丧尸。</div>`; }
     if (t.owned) h += edgeHtml(t, x, y, v) + cropHtml(t, x, y);
     if (t.grove) h += `<div class="box safe dim">树林：${Sim.grown(t) ? `长成了，每天修枝 +1 木料；也能派人整片砍掉换 ${Sim.LOG} 木料。` : `还要长 ${Math.ceil(Sim.GROVE - t.grove.g)} 天（冬天不长，梅雨长得快）。`}</div>`;
     const byBike = !reach && v && t.seen && Sim.bikeReach(S, v, x, y);
@@ -1001,7 +1037,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     if (!t.seen || (!reach && !byBike && !byRaid)) return h + `<div class="dim">${S.wxNow === 'typhoon' ? '台风天只能去相邻的街区，骑车、远征端巢都不行。' : `离地盘太远。先收复相邻的街区${S.surv.some(u => u.gear === 'bike') ? '，或者让骑脚踏车的人去' : ''}。`}</div>`;
     if (t.camp) return h;
     if (byBike) h += `<div class="dim">${v.name}骑脚踏车能到这里。</div>`;
-    const keys = (t.owned ? ['rescue', 'defend', 'fortify', 'log', 'grove', 'farm', 'scav', 'strip'] : ['rescue', 'scav', 'clear', 'claim', 'strip'])
+    const keys = (t.owned ? ['rescue', 'defend', 'fortify', 'work', 'fix', 'log', 'grove', 'farm', 'scav', 'strip'] : ['rescue', 'scav', 'clear', 'claim', 'strip'])
       .filter(k => relevant(t, x, y, k) && (reach || byBike || k === 'clear'));
     if (!keys.length) return h + `<div class="dim">这里没什么可做的。</div>`;
     if (!v) h += `<div class="c-amber">在左边选一个住户来派工。</div>`;
@@ -1083,7 +1119,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
   }
   function gearHtml() {
     const v = selSurv != null ? Sim.byId(S, selSurv) : null, G = Sim.GEAR;
-    let h = foodHtml();
+    let h = `<div class="gh">材料</div><div class="edges">${Object.keys(Sim.RES).map(k => `<span class="btn edge" title="${Sim.RES[k].name}">${ic(k === 'mat' ? 'mat' : k, Sim.RES[k].name)}${Sim.RES[k].name} ${S[k] || 0}</span>`).join('')}</div>` + foodHtml();
     const counts = {};
     for (const k of S.stash) counts[k] = (counts[k] || 0) + 1;
     h += `<div class="gh">装备</div>`;
@@ -1207,6 +1243,8 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
         <li>边上的工事：每块地朝外的每条边能造一样东西，派一个人花一天、付材料造好。木栅 +1 防御，铁丝网 +2 而且巨汉撞不开，钉板陷阱先挡掉 3 点、触发后要派人来这块地“加固”重新布置，哨位让站在上面拿弓弩的人也帮相邻的自家地块放箭，探照灯让雾夜的冲击不再说不准，诱饵把尸群往这块地多引一些。诱饵加陷阱加哨位，就是一块杀伤区。</li>
         <li>武器：长矛只要木料，守夜战斗 +1；弓（木料）+2、弩（木料加废铁）+3，每晚每人用掉 1 支箭、天亮捡回一半，没箭就没用。箭在据点做，一次 6 支。</li>
         <li>菜园可以自己选种什么（地块面板里），选了就马上用一包种子换种；选下一季的作物可以提前种下，等换季时正好长好。</li>
+        <li>工厂：加油站（抽出化学品）、修车厂（废铁敲成零件，做弩要用）、化工厂（化学品配成火药，压子弹要用），都离据点比较远。收复后要派人驻场才开工；机器开一天掉 1 点耐久，掉到 0 就停，要派人维修；开机会吵，旁边没收复的街区可能多出丧尸。</li>
+        <li>枪：手枪（派出所）、霰弹枪（修车厂）、步枪（空投、尸巢里）只能捡，捡到时弹匣里有几发子弹。守夜时手枪 +3、步枪 +4（站哨位能帮相邻地块）、霰弹枪 +5 但一晚用 2 发。子弹打掉就没了，枪声会把附近的丧尸引过来。子弹在据点用火药加废铁压，一次 5 发；派出所的弹药柜里也能翻到。</li>
         <li>装备：每人能带一件，在“装备”分页里分配。撬棍在五金行、对讲机在派出所、急救包在医院和超市，住宅里有脚踏车，废墟里有安全帽（地图上的黄点）；消防斧和安全帽也能花材料在据点打造。受伤时身上的东西可能掉在原地。</li>
         <li>清晨偶尔会有事找上门：街区里的另一伙人（白旗）、收音机里的求救信号（蓝旗）、发烧的住户、烧起来的楼。有些事会接着发展好几天。</li>
       </ol>

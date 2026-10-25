@@ -8,8 +8,8 @@ function gearUp(s, opt) {
   for (const v of s.surv.filter(v => v.inf > 0)) if (s.stash.includes('medkit')) s = Sim.useMedkit(s, v.id);
   const kits = () => s.stash.filter(k => k === 'medkit').length;
   for (const v of s.surv.filter(v => v.inj > 0 && !v.inf).sort((a, b) => b.fight - a.fight)) if (kits() > (opt.kitReserve ?? 1)) s = Sim.useMedkit(s, v.id);
-  const want = { axe: v => v.fight, helmet: v => v.fight + v.scav, crowbar: v => v.scav, walkie: v => v.fight, bike: v => v.scav, xbow: v => v.fight, bow: v => v.fight, spear: v => v.fight };
-  for (const k of ['axe', 'crowbar', 'helmet', 'walkie', 'bike', 'xbow', 'bow', 'spear']) {
+  const want = { axe: v => v.fight, helmet: v => v.fight + v.scav, crowbar: v => v.scav, walkie: v => v.fight, bike: v => v.scav, xbow: v => v.fight, bow: v => v.fight, spear: v => v.fight, shotgun: v => v.fight, rifle: v => v.fight, pistol: v => v.fight };
+  for (const k of ['shotgun', 'rifle', 'pistol', 'axe', 'crowbar', 'helmet', 'walkie', 'bike', 'xbow', 'bow', 'spear']) {
     while (s.stash.includes(k)) {
       const v = s.surv.filter(v => !v.gear).sort((a, b) => want[k](b) - want[k](a))[0];
       if (!v) break;
@@ -94,7 +94,8 @@ function policy(s, opt) {
   const canF = base => Object.keys(fcost(base)).every(k => res[k] >= fcost(base)[k]);
   const payF = base => { for (const [k, n] of Object.entries(fcost(base))) res[k] -= n; };
   const built = new Set();
-  let arrowsLeft = s.arrow || 0;
+  const ammoLeft = { arrow: s.arrow || 0, ammo: s.ammo || 0 };
+  const fire = v => { const G = v.gear && Sim.GEAR[v.gear]; if (!G || !G.shot || ammoLeft[G.shot] < G.per) return 0; ammoLeft[G.shot] -= G.per; return G.atk; };
   for (const f of fronts) {
     let need = f.need;
     const room = () => f.base ? s.fort < Sim.FORT_MAX : Sim.tile(s, f.x, f.y).bar < Sim.barMax(s);
@@ -112,7 +113,7 @@ function policy(s, opt) {
         for (const [k, n] of Object.entries(Sim.FORTS[wk].cost)) res[k] -= n;
         need -= wk === 'wire' ? 2 : 1;
       } else tasks[v.id] = f.base ? { k: 'defend' } : { k: 'defend', x: f.x, y: f.y };
-      need -= v.fight + (v.gear === 'spear' ? 1 : 0) + (v.gear && Sim.GEAR[v.gear].ranged && arrowsLeft-- > 0 ? Sim.GEAR[v.gear].ranged : 0);
+      need -= v.fight + (v.gear === 'spear' ? 1 : 0) + fire(v);
     }
     deficit[`${f.x},${f.y}`] = need;
   }
@@ -122,7 +123,7 @@ function policy(s, opt) {
   const scavable = front.filter(o => o.t.food + o.t.mat > 0)
     .sort((a, b) => (b.t.food * 2 + b.t.mat) / (1 + b.t.z) - (a.t.food * 2 + a.t.mat) / (1 + a.t.z));
   const expand = plan.edges < (opt.maxEdges ?? 99) && !opt.turtle;
-  const val = o => { const T = Sim.eff(o.t); return ((T.food || 0) * 3 + (T.beds || 0) * 0.6 + (T.mat || 0) * 2 + (T.def || 0) + (T.heal ? 2 : 0) + (T.radio ? 6 : 0) + 0.3) / Math.max(1, TYPES[o.t.t].cost - o.t.prog); };
+  const val = o => { const T = Sim.eff(o.t); return ((T.food || 0) * 3 + (T.beds || 0) * 0.6 + (T.mat || 0) * 2 + (T.def || 0) + (T.heal ? 2 : 0) + (T.radio ? 6 : 0) + (opt.plan && !opt.noFactory && Sim.WORKS[o.t.t] ? 2 : 0) + 0.3) / Math.max(1, TYPES[o.t.t].cost - o.t.prog); };
   // 往巢推进：离已发现的巢越近的地块越想拿（拿到离巢两格以内就能去端）
   const nestPull = o => {
     if (!opt.push) return 0;
@@ -171,18 +172,30 @@ function policy(s, opt) {
   const home = pull => s.surv.filter(v => tasks[v.id] && tasks[v.id].k === 'defend' && tasks[v.id].x == null).sort((a, b) => b.build - a.build)[0] || (pull && free.length > 2 ? free.splice(free.length - 1, 1)[0] : null);
   const spare = (c, keep = 6) => Object.entries(c).every(([k, n]) => res[k] - n >= (k === 'chem' ? 0 : keep));
   // 先补箭（拿弓弩的人每人留 3 支），再给没装备的人做弩、弓、长矛，最后才是斧头、安全帽
-  const shooters = s.surv.filter(u => u.gear && Sim.GEAR[u.gear].ranged).length + s.stash.filter(k => Sim.GEAR[k].ranged).length;
+  const holds = shot => s.surv.filter(u => u.gear && Sim.GEAR[u.gear].shot === shot).reduce((a, u) => a + Sim.GEAR[u.gear].per, 0) + s.stash.filter(k => Sim.GEAR[k].shot === shot).length;
+  const shooters = holds('arrow'), gunners = holds('ammo');
   const bare = s.surv.filter(u => !u.gear).length - s.stash.filter(k => !Sim.GEAR[k].use).length;
   if (!opt.noGear && !opt.noCraft) {
     // 不缺粮的时候才从空闲的人里拉一个专门做武器
-    const h = home(!hungry && !crisis && (bare > 0 || (shooters && (s.arrow || 0) < shooters * 3)));
-    const order = [shooters && (s.arrow || 0) < shooters * 3 ? 'arrows' : null, ...(bare > 0 ? ['xbow', 'bow', 'spear', s.surv.some(u => u.gear === 'axe') || s.stash.includes('axe') ? 'helmet' : 'axe'] : [])].filter(Boolean);
-    const item = h && order.filter(k => !opt.noWeapons || !['xbow', 'bow', 'spear', 'arrows'].includes(k)).find(k => spare(Sim.craftCost(h, k), k === 'arrows' ? 2 : 6));
+    const lowA = shooters && (s.arrow || 0) < shooters * 3, lowB = gunners && (s.ammo || 0) < gunners * 4 && s.powder >= 1;
+    const h = home(!hungry && !crisis && (bare > 0 || lowA || lowB));
+    const order = [lowB ? 'bullets' : null, lowA ? 'arrows' : null, ...(bare > 0 ? ['xbow', 'bow', 'spear', s.surv.some(u => u.gear === 'axe') || s.stash.includes('axe') ? 'helmet' : 'axe'] : [])].filter(Boolean);
+    const item = h && order.filter(k => !opt.noWeapons || !['xbow', 'bow', 'spear', 'arrows', 'bullets'].includes(k)).find(k => spare(Sim.craftCost(h, k), k === 'arrows' || k === 'bullets' ? 2 : 6));
     if (item) { tasks[h.id] = { k: 'craft', item }; for (const [k, n] of Object.entries(Sim.craftCost(h, item))) res[k] -= n; }
   }
   if (!opt.noGear && !opt.noCraft && s.stash.filter(k => k === 'medkit').length < 2) {
     const h = home();
     if (h && spare(Sim.craftCost(h, 'medkit'))) tasks[h.id] = { k: 'craft', item: 'medkit' };
+  }
+  // 会规划的：自家的工厂有原料就派一个人驻场，快坏了就修（不饿的时候）
+  if (opt.plan && !opt.noFactory && !hungry) for (const t of Sim.owned(s).filter(t => Sim.WORKS[t.t] && !t.gutted)) {
+    const i = s.tiles.indexOf(t), x = i % W, y = Math.floor(i / W), Wk = Sim.WORKS[t.t];
+    const want = t.t === 'garage' ? s.parts < 3 : t.t === 'chemplant' ? s.powder < 4 && s.chem >= 2 : s.chem < 8;
+    if (!want || !free.length) continue;
+    const v = free.sort((a, b) => b.build - a.build).shift();
+    if (Sim.cond(t) <= 1 && s.iron >= 4) tasks[v.id] = { k: 'fix', x, y };
+    else if (Sim.cond(t) > 0 && Object.entries(Wk.use).every(([k, n]) => (s[k] || 0) >= n)) tasks[v.id] = { k: 'work', x, y };
+    else free.unshift(v);
   }
   for (const v of free) {
     // 加固：缺口最大的边界
@@ -264,6 +277,7 @@ if (require.main === module) {
     ['先打巢', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', detail: true }],
     ['会规划', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', plan: true }],
     ['不造工事', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', plan: true, noWorks: true }],
+    ['不开工厂', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', plan: true, noFactory: true }],
     ['不做武器', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', plan: true, noWeapons: true }],
     ['奔电台', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', plan: true, goal: 'rescue' }],
     // 其余季节都用先打巢的打法

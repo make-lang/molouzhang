@@ -23,12 +23,12 @@ for (let i = 0; i < 400; i++) {
     }
     // 随机给几个人派活，覆盖各种任务分支
     for (const v of s.surv) {
-      if ((v.id + s.day) % 9 === 0 && s.mat >= 6) { s = Sim.setTask(s, v.id, { k: 'craft', item: ['crowbar', 'axe', 'helmet', 'spear', 'bow', 'xbow', 'arrows', 'medkit'][s.day % 8] }); continue; }
+      if ((v.id + s.day) % 9 === 0 && s.mat >= 6) { s = Sim.setTask(s, v.id, { k: 'craft', item: ['crowbar', 'axe', 'helmet', 'spear', 'bow', 'xbow', 'arrows', 'medkit', 'bullets'][s.day % 9] }); continue; }
       const x = (v.id * 3 + s.day) % Sim.W, y = (v.id * 5 + s.day) % Sim.H;
       // 造工事：在朝外的边上轮流造各种
       const fk = Object.keys(Sim.FORTS)[(v.id + s.day) % 6], ed = Sim.outEdges(s, x, y);
       if ((v.id + s.day) % 5 === 0 && ed.length && Sim.canDo(s, v, 'build', x, y, `${fk}:${ed[0]}`)) { s = Sim.setTask(s, v.id, { k: 'build', x, y, item: `${fk}:${ed[0]}` }); continue; }
-      for (const k of ['rescue', 'clear', 'claim', 'log', 'grove', 'farm', 'strip', 'scav', 'fortify', 'defend'])
+      for (const k of ['rescue', 'clear', 'claim', 'fix', 'work', 'log', 'grove', 'farm', 'strip', 'scav', 'fortify', 'defend'])
         if (Sim.canDo(s, v, k, x, y)) { s = Sim.setTask(s, v.id, { k, x, y }); break; }
     }
     // 端巢：每隔几天把能打的人派去够得着的巢
@@ -51,7 +51,7 @@ for (let i = 0; i < 400; i++) {
     if (Sim.forecast(s) && Sim.forecast(s).flood) wxSeen['淹水'] = (wxSeen['淹水'] || 0) + 1;
     const n0 = s.log.length;
     s = Sim.endDay(s);
-    for (const l of s.log.slice(n0)) for (const [k, re] of [['打造', /做出一件/], ['捡到', /找到了.*放进了仓库/], ['帽碎', /安全帽碎了/], ['掉落', /掉在了/], ['骑车', /骑车/], ['砍巢', /砍了尸巢/], ['端巢', /烧了尸巢/], ['巢长大', /尸巢又大了一圈|尸巢又长大了/], ['发现巢', /发现了一个尸巢/], ['新巢', /新的尸巢/], ['被咬', /被咬了！/], ['尸变', /已经不是/], ['治咬伤', /咬伤治好了/], ['翻到药', /翻到一个急救包/], ['台风', /台风刮了一整夜/], ['取暖', /份材料取暖/], ['冻病', /冻病了/], ['发霉', /发霉/], ['猜错天', /跟早上听/], ['说中', /说中了/], ['雷劈', /雷打中|一道雷/], ['放坏', /放坏了/], ['下种', /种下了/], ['过季', /过季了/], ['吃腻', /吃不下了/], ['翻到种子', /种子。$/], ['煮种子', /种子煮了/], ['造工事', /造好了/], ['陷阱', /钉板陷阱绊倒/], ['放箭', /支箭，天亮/], ['种树', /种下一片树苗/], ['砍树', /把.*的树砍了/], ['做箭', /做出 \d+ 支箭/], ['改种', /改种/], ['巢醒', /尸巢醒了/], ['约直升机', /确认了降落点/], ['直升机走', /飞走了/], ['换季', /^入.*了。/], ['开垦', /开出/]]) if (re.test(l.msg)) gearOps[k] = (gearOps[k] || 0) + 1;
+    for (const l of s.log.slice(n0)) for (const [k, re] of [['打造', /做出一件/], ['捡到', /找到了.*放进了仓库/], ['帽碎', /安全帽碎了/], ['掉落', /掉在了/], ['骑车', /骑车/], ['砍巢', /砍了尸巢/], ['端巢', /烧了尸巢/], ['巢长大', /尸巢又大了一圈|尸巢又长大了/], ['发现巢', /发现了一个尸巢/], ['新巢', /新的尸巢/], ['被咬', /被咬了！/], ['尸变', /已经不是/], ['治咬伤', /咬伤治好了/], ['翻到药', /翻到一个急救包/], ['台风', /台风刮了一整夜/], ['取暖', /份材料取暖/], ['冻病', /冻病了/], ['发霉', /发霉/], ['猜错天', /跟早上听/], ['说中', /说中了/], ['雷劈', /雷打中|一道雷/], ['放坏', /放坏了/], ['下种', /种下了/], ['过季', /过季了/], ['吃腻', /吃不下了/], ['翻到种子', /种子。$/], ['煮种子', /种子煮了/], ['造工事', /造好了/], ['陷阱', /钉板陷阱绊倒/], ['放箭', /支箭，天亮/], ['种树', /种下一片树苗/], ['砍树', /把.*的树砍了/], ['做箭', /做出 \d+ 支箭/], ['改种', /改种/], ['开工', /做出 \d+ (零件|火药|化学品)/], ['修工厂', /机器修好了/], ['开枪', /发子弹。枪声/], ['压子弹', /压了一整天/], ['捡到枪', /弹匣里/], ['巢醒', /尸巢醒了/], ['约直升机', /确认了降落点/], ['直升机走', /飞走了/], ['换季', /^入.*了。/], ['开垦', /开出/]]) if (re.test(l.msg)) gearOps[k] = (gearOps[k] || 0) + 1;
     s = Sim.deserialize(Sim.serialize(s));
     if (s.food !== s.pantry.reduce((a, b) => a + b.n, 0)) throw new Error(`第 ${s.day} 天：存粮总数 ${s.food} 跟粮仓对不上`);
   }
@@ -85,6 +85,22 @@ delete o13.pantry; delete o13.seeds; delete o13.diet; o13.tiles.forEach(t => { d
 o13.v = 13;
 const f13 = o13.food, m13 = Sim.deserialize(JSON.stringify(o13));
 if (m13.pantry.reduce((a, b) => a + b.n, 0) !== f13 || !Sim.plots(m13).every(t => t.crop)) throw new Error('v13 存档迁移后粮仓要对得上、菜园要种着东西');
+// 工厂：直接把三座工厂划成自己的，派人开工、修理，压子弹，确认产出对得上
+let fs = Sim.newGame(13, { season: 'spring' });
+while (fs.event) fs = first(fs);
+Object.assign(fs, { iron: 10, chem: 6, powder: 0, parts: 0 });
+const fac = ['gas', 'garage', 'chemplant'].map(k => fs.tiles.findIndex(t => t.t === k));
+if (fac.some(i => i < 0)) throw new Error('地图上应该有加油站、修车厂、化工厂');
+fac.forEach(i => Object.assign(fs.tiles[i], { owned: true, z: 0 }));
+fac.forEach((i, j) => { fs = Sim.setTask(fs, fs.surv[j].id, { k: 'work', x: i % Sim.W, y: Math.floor(i / Sim.W) }); });
+fs = Sim.endDay(fs);
+if (!(fs.parts > 0 && fs.powder > 0)) throw new Error(`工厂没有产出：零件 ${fs.parts}、火药 ${fs.powder}`);
+fs.tiles[fac[1]].cond = 0;
+fs = Sim.setTask(fs, fs.surv[0].id, { k: 'fix', x: fac[1] % Sim.W, y: Math.floor(fac[1] / Sim.W) });
+fs = Sim.setTask(fs, fs.surv[1].id, { k: 'craft', item: 'bullets' });
+const a0 = fs.ammo; fs = Sim.endDay(fs);
+if (!(fs.tiles[fac[1]].cond > 0)) throw new Error('修车厂修不好');
+if (fs.ammo <= a0 - 6) throw new Error('压子弹没算上');
 console.log(`冒烟测试通过：400 局，平均撑到第 ${(days / 400).toFixed(1)} 天；v5 存档迁移后跑到第 ${m.day} 天`);
 console.log(`白天天气：${JSON.stringify(wxSeen)}`);
 console.log(`结局：${JSON.stringify(endings)}`);
