@@ -1,6 +1,7 @@
 // 末日楼长 · 模拟层 v0.2
 // 纯逻辑：所有函数接收 state、返回新 state，不碰 DOM。随机数种子存在 state 里，存档可完整复现。
 // v0.2：夜袭按边界逐块结算（扩张会拉长防线）；建筑可以拆掉换材料；食物充足时会有人来投奔。
+// v0.20：科技扩到五支 33 项：加武备、侦察两支，各支加深（水耕架、地窖、碉堡、机修、发电机、截肢、燃烧瓶、追踪……），关键物品 19 种，几项科技抢同一种物品。
 // v0.19：科技树：派人在据点研究，书和懂行的人给进度，有的要先收复某栋楼、研究完要用掉一样关键物品；农耕、营造、医护三支共 12 项。
 // v0.18：开局可以选街区大小：小街区 8×8，大街区 12×12（东西多、出路多、巢多，村子要 12 人）；界面一次看 8×8，能拖动、有小地图。
 // v0.17：材料分成木料、废铁、化学品；废墟上能种树；菜园的生长期改回 3–6 天，可以自己选种什么、提前换种。
@@ -20,7 +21,7 @@
 // v0.3：住户有绑在地图上的牵挂（救人、取物、收回老家、别拆），有期限，达成会更卖力，放着不管会出事。
 const Sim = (() => {
   'use strict';
-  const VERSION = 17;
+  const VERSION = 18;
   // 街区大小：每局开局选，存在 s.W / s.H / s.base 里。小街区就是原来的 8×8；大街区 12×12，东西多、出路多，巢也多
   const MAPS = {
     small: { name: '小街区', W: 8, H: 8, base: [1, 6], radio: [5, 7], nests: [3, 5], nestFar: 8, scream: 2, village: 10,
@@ -151,7 +152,7 @@ const Sim = (() => {
     walkie:  { name: '对讲机', desc: '拿着的人驻守时，相邻的每块我方地盘夜间防御 +2（一块地最多 +4）。' },
     bike:    { name: '脚踏车', desc: '能去离地盘两格远的地方搜刮、救人，不用先把路打通；跑得快，搜刮、救人受伤率 -30%。' },
     // 守夜用的武器：atk 是战斗加成，shot 是用什么弹药、per 是每晚用几发，tower 是站在哨位上能帮相邻的地块，loud 是枪声（会把丧尸引过来）
-    spear:   { name: '长矛',   cost: { mat: 2 }, desc: '守夜时战斗 +1。只要木料。' },
+    spear:   { name: '长矛',   cost: { mat: 2 }, desc: '守夜时战斗 +1（学会枪术 +2）。只要木料。' },
     bow:     { name: '弓',     cost: { mat: 3 }, atk: 2, shot: 'arrow', per: 1, tower: true, desc: '守夜时放箭，战斗 +2，每晚用掉 1 支箭（第二天捡回一半）；站在哨位上还能帮相邻的自家地块。没箭就是根棍子。' },
     xbow:    { name: '弩',     cost: { mat: 2, iron: 1, parts: 1 }, atk: 3, shot: 'arrow', per: 1, tower: true, desc: '守夜时放箭，战斗 +3，每晚用掉 1 支箭（第二天捡回一半）；站在哨位上还能帮相邻的自家地块。弹簧要修车厂敲的零件。' },
     pistol:  { name: '手枪',   atk: 3, shot: 'ammo', per: 1, loud: 1, desc: '守夜时战斗 +3，每晚用 1 发子弹。枪声会把附近的丧尸引过来。只能捡，做不出来。' },
@@ -162,6 +163,9 @@ const Sim = (() => {
     // 研究出来才能做的：熔铁（木料当燃料熔出废铁）、腌菜（把快坏的菜腌起来）
     ingot:   { name: '熔铁', cost: { mat: 3 }, ammo: 2, into: 'iron', tech: 'smelt', desc: '3 木料当燃料，把碎铁熔出 2 份废铁。' },
     pickle:  { name: '腌菜', cost: { mat: 1 }, pickle: 8, tech: 'pickle', desc: '把最快坏的 8 份菜腌成腌菜，放 60 天。' },
+    rack:    { name: '水耕架', cost: { iron: 2, mat: 2 }, ammo: 1, into: 'racks', tech: 'hydro', desc: '摆在据点里，不分季节每天长 1 份青菜；每两个架子每天用 1 化学品。最多 6 个。' },
+    parts:   { name: '敲零件', cost: { iron: 3 }, ammo: 1, into: 'parts', tech: 'machining', desc: '3 废铁敲出 1 份零件，做弩用。' },
+    reload:  { name: '复装子弹', cost: { chem: 2, iron: 1 }, ammo: 4, into: 'ammo', tech: 'reload', desc: '2 化学品当发射药、1 废铁做弹头，压出 4 发子弹。' },
     medkit:  { name: '急救包', use: true, cost: { chem: 4 }, desc: '用在伤员身上，马上就能出门；也能治好咬伤。用完就没了。医院、超市、住宅里偶尔能翻到，也能用化学品在据点做。' },
   };
 
@@ -181,31 +185,66 @@ const Sim = (() => {
     steel:   { name: '钢板',   src: { garage: 0.5, ruin: 0.1, chemplant: 0.4 } },
     bleach:  { name: '漂白水', src: { mart: 0.4, hospital: 0.4, school: 0.2 } },
     pills:   { name: '抗生素', src: { hospital: 0.8, police: 0.15 } },
+    engine:  { name: '发动机', src: { garage: 0.5, gas: 0.4 } },
+    pump:    { name: '水泵',   src: { hardware: 0.3, gas: 0.3, park: 0.2, market: 0.1 } },
+    casing:  { name: '弹壳',   src: { police: 0.6, garage: 0.15, ruin: 0.05 } },
+    fuel:    { name: '汽油',   src: { gas: 0.7, garage: 0.4 } },
+    scalpel: { name: '手术刀', src: { hospital: 0.6, school: 0.1 } },
+    atlas:   { name: '地图册', src: { school: 0.3, police: 0.4, gas: 0.4, temple: 0.2 } },
   };
   // 科技：pts 是要攒的研究点，need 是研究完要用掉的关键物品（几样里有一样就行），pre 是要先研究的，site 是要先收复的楼。
   // 研究点靠派人在据点“研究”（每人每天 1 点，大学生、国中老师 2 点，收复了国小再多一半）；书和投奔来的人也会直接给进度，整本的手册直接学会。
-  // 不互斥：方向相反的科技（温室靠冬天也能种，腌缸靠把菜存起来）抢的是同一份研究点、木料和人手
+  // 不互斥：方向相反的科技（温室靠冬天也能种，腌缸、地窖靠把菜存起来）抢的是同一份研究点、木料和人手；几项科技抢同一种物品（锯子、酒精、电线、电池、钢板、发动机）
   const TECHS = {
     compost:   { br: '农耕', name: '堆肥',     pts: 8,  desc: '菜园收成多两成半。' },
     breed:     { br: '农耕', name: '育种',     pts: 10, pre: 'compost', desc: '收成时留下种子的机会从 6% 提到 15%。' },
+    irrigate:  { br: '农耕', name: '引水灌溉', pts: 10, pre: 'compost', need: ['pump', 'tarp'], desc: '盛夏、秋老虎的菜园收成多三成。' },
     hothouse:  { br: '农耕', name: '温室',     pts: 14, pre: 'compost', need: ['glass', 'tarp'], desc: '能在菜园上搭温室（一人一天、4 木料）：冬天照样长、不怕霜，但冬天每块温室每天烧 1 木料，烧不起就跟露天一样。' },
+    hydro:     { br: '农耕', name: '水耕架',   pts: 18, pre: 'hothouse', need: ['pump', 'wire'], desc: '能在据点做水耕架（2 废铁、2 木料，最多 6 个）：不分季节每个每天长 1 份青菜，每两个架子每天用 1 化学品当营养液，没有就不长；发电机开着就不用。' },
     pickle:    { br: '农耕', name: '腌缸',     pts: 10, need: ['salt', 'alcohol'], desc: '能在据点腌菜：一次把最快坏的 8 份菜腌成放 60 天的腌菜，要 1 木料。' },
+    cellar:    { br: '农耕', name: '地窖',     pts: 12, pre: 'pickle', need: ['brick', 'steel'], desc: '新收进来的米粮和作物多放一半天数；大雨、回南天存粮不再发霉。' },
     carpentry: { br: '营造', name: '木工',     pts: 8,  need: ['saw', 'drill'], desc: '木栅防御 +2（原来 +1）；加固（焊铁窗、堆路障）每次多 1。' },
+    dismantle: { br: '营造', name: '拆解',     pts: 8,  need: ['saw', 'drill'], desc: '拆除时每人多拆下 2 份材料。' },
     gate:      { br: '营造', name: '加厚铁门', pts: 10, pre: 'carpentry', need: ['steel'], desc: '铁门耐久上限 +6，马上修满。' },
+    bunker:    { br: '营造', name: '碉堡',     pts: 18, pre: 'gate', need: ['steel', 'brick'], desc: '据点工事上限从 10 提到 14。' },
+    machining: { br: '营造', name: '机修',     pts: 12, pre: 'carpentry', need: ['drill', 'engine'], desc: '能在据点用 3 废铁敲出 1 份零件（做弩用），不用去修车厂。' },
     smelt:     { br: '营造', name: '熔铁',     pts: 12, pre: 'carpentry', site: 'garage', need: ['blower', 'brick'], desc: '能在据点用 3 木料当燃料，把碎铁熔出 2 份废铁。' },
-    shock:     { br: '营造', name: '电网',     pts: 16, pre: 'smelt', need: ['wire', 'battery'], desc: '能在边上造电网（2 废铁、1 化学品）：有化学品时防御 +4，每次遭到冲击烧 1 化学品；烧完了只算 +2。' },
+    shock:     { br: '营造', name: '电网',     pts: 16, pre: 'smelt', need: ['wire', 'battery'], desc: '能在边上造电网（2 废铁、1 化学品）：有化学品时防御 +4，每次遭到冲击烧 1 化学品；烧完了只算 +2。发电机开着就不烧化学品。' },
+    generator: { br: '营造', name: '发电机',   pts: 16, pre: 'smelt', need: ['engine'], desc: '能在研究分页开关发电机。开着每天烧 1 化学品：研究快一半，电网、探照灯、水耕架都不再用化学品；但机器声音会把更多尸群引到据点。' },
     clean:     { br: '医护', name: '消毒',     pts: 8,  need: ['bleach', 'alcohol'], desc: '受伤时变成咬伤的机会少三分之一。' },
     herb:      { br: '医护', name: '土方子',   pts: 8,  desc: '急救包只要 2 化学品。' },
     stretcher: { br: '医护', name: '担架',     pts: 6,  desc: '伤员每天多好 1 天。' },
+    diet:      { br: '医护', name: '营养搭配', pts: 10, need: ['salt'], desc: '连着吃同一种东西也不会有人赌气；冬天饭量只多一成（原来两成）。' },
     cure:      { br: '医护', name: '抗感染',   pts: 16, pre: 'clean', site: 'hospital', need: ['pills', 'alcohol'], desc: '没有医院也能在据点治咬伤，每治一个用 1 化学品。' },
+    surgery:   { br: '医护', name: '截肢',     pts: 14, pre: 'stretcher', need: ['scalpel', 'alcohol'], desc: '咬伤要尸变的那天早上多一个选择：截肢保命。人留下来，但战斗和搜刮各少 1、要躺很久。' },
+    fletch:    { br: '武备', name: '制箭',     pts: 6,  desc: '一捆箭做出 9 支（原来 6 支）；天亮捡回四分之三的箭（原来一半）。' },
+    spear:     { br: '武备', name: '枪术',     pts: 8,  desc: '拿长矛守夜的人战斗 +2（原来 +1）。' },
+    armor:     { br: '武备', name: '护具',     pts: 10, need: ['tarp', 'steel'], desc: '搜刮、清理时受伤的机会少两成。' },
+    reload:    { br: '武备', name: '复装子弹', pts: 12, need: ['casing'], desc: '能在据点用 2 化学品、1 废铁压出 4 发子弹，不用火药。' },
+    tactics:   { br: '武备', name: '巷战',     pts: 14, pre: 'spear', desc: '清理时每人多杀 1 只。' },
+    molotov:   { br: '武备', name: '燃烧瓶',   pts: 12, pre: 'tactics', need: ['fuel', 'alcohol'], desc: '端巢时砍到巢上的力气翻倍。' },
+    survey:    { br: '侦察', name: '测绘',     pts: 6,  desc: '地盘推到离巢三格以内就看得到它（原来两格）。' },
+    clouds:    { br: '侦察', name: '看云识天', pts: 8,  desc: '大家看天的本事都提高一档：瞎猜的变一般，一般的变准。' },
+    lure:      { br: '侦察', name: '引尸',     pts: 10, need: ['battery', 'wire'], desc: '诱饵的引力翻倍：尸群更集中往有诱饵的地块去。' },
+    trail:     { br: '侦察', name: '路标',     pts: 10, pre: 'survey', need: ['atlas'], desc: '搜刮、救人能去离地盘两格以内的地方，跟骑脚踏车一样（台风天、淹水去不了）。' },
+    radioset:  { br: '侦察', name: '收音机',   pts: 14, need: ['wire', 'battery'], desc: '没收复电台也听得到天气广播，今晚、明晚的天气全准（电塔倒了的城市听不到）。' },
+    track:     { br: '侦察', name: '追踪',     pts: 16, pre: 'trail', need: ['atlas'], desc: '学会时标出地图上所有的巢，包括还在休眠的。' },
   };
-  const BRANCHES = ['农耕', '营造', '医护'];
-  const BOOKS = { 农耕: ['《阳台种菜一本通》', '《农民历》', '《堆肥与土壤》'], 营造: ['《水电维修手册》', '《木工入门》', '《焊接图解》'], 医护: ['《急救手册》', '《家庭医学百科》', '《护理学讲义》'] };
-  const JOB_BR = { 护理师: '医护', 装潢师傅: '营造', 水电工: '营造', 菜贩: '农耕', 里长: '农耕' };   // 投奔来的人懂的那一行
+  const BRANCHES = ['农耕', '营造', '医护', '武备', '侦察'];
+  const BOOKS = { 农耕: ['《阳台种菜一本通》', '《农民历》', '《堆肥与土壤》'], 营造: ['《水电维修手册》', '《木工入门》', '《焊接图解》'], 医护: ['《急救手册》', '《家庭医学百科》', '《护理学讲义》'],
+    武备: ['《射箭入门》', '《防身术图解》', '《野外求生》'], 侦察: ['《登山地图》', '《气象常识》', '《童军手册》'] };
+  const JOB_BR = { 护理师: '医护', 装潢师傅: '营造', 水电工: '营造', 菜贩: '农耕', 里长: '农耕', 退休警察: '武备', 保全: '武备', 健身教练: '武备', 外送员: '侦察' };   // 投奔来的人懂的那一行
   const tech = (s, k) => !!(s.tech && s.tech.done[k]);
   const techOpen = (s, k) => { const T = TECHS[k]; return !tech(s, k) && (!T.pre || tech(s, T.pre)) && (!T.site || s.tiles.some(t => t.owned && t.t === T.site)); };
   const haveNeed = (s, k) => { const n = TECHS[k].need; return !n || n.find(i => (s.items[i] || 0) > 0) || null; };
   const studyPts = v => 1 + (['大学生', '国中老师'].includes(v.job) ? 1 : 0);
+  const RACK_MAX = 6;
+  // 发电机开着、今天烧得起（或者今天已经烧过）：电网、探照灯、水耕架不用化学品，研究快一半，据点更招尸群
+  const powered = s => !!s.gen && tech(s, 'generator') && (s.genDay === s.day || (s.chem || 0) >= 1);
+  const fortMax = s => FORT_MAX + (tech(s, 'bunker') ? 4 : 0);
+  const lifeOf = (s, k) => FOODS[k].life && k !== 'pickle' && tech(s, 'cellar') ? Math.round(FOODS[k].life * 1.5) : FOODS[k].life;
+  const irrK = (s, se) => tech(s, 'irrigate') && (se === 'summer' || se === 'autumn') ? 1.3 : 1;
+  const hasNear = (s, x, y, r) => s.tiles.some((t, i) => t.owned && Math.abs(i % s.W - x) + Math.abs(Math.floor(i / s.W) - y) <= r);
 
   // 学会一项科技：有的马上生效（加厚铁门），其余在用到的地方用 tech(s, k) 判断
   function learn(s, k, why) {
@@ -213,6 +252,11 @@ const Sim = (() => {
     if (s.tech.cur === k) s.tech.cur = null;
     if (k === 'gate') { s.wallMax += 6; s.wall = s.wallMax; }
     s.log.push({ d: s.day, tone: 'good', msg: `${why || ''}学会了「${TECHS[k].name}」：${TECHS[k].desc}` });
+    if (k === 'track') {
+      const left = nests(s).filter(([x, y]) => !tile(s, x, y).nest.found);
+      for (const [x, y] of left) { tile(s, x, y).nest.found = true; tile(s, x, y).seen = true; }
+      s.log.push({ d: s.day, tone: left.length ? 'bad' : 'info', msg: left.length ? `顺着脚印和抓痕，在地图上标出了 ${left.length} 个之前没找到的尸巢。` : '顺着脚印找了一圈，没有别的尸巢了。' });
+    }
   }
   // 进度攒满、前置和地点都齐了，就用掉一样关键物品学会；缺东西就先搁着，等捡到了再说
   function tryFinish(s) {
@@ -225,19 +269,27 @@ const Sim = (() => {
     }
   }
   function addProg(s, k, n) { if (!tech(s, k)) s.tech.prog[k] = Math.min(TECHS[k].pts, (s.tech.prog[k] || 0) + n); }
+  // 开关发电机
+  function setGen(s0, on) {
+    if (!tech(s0, 'generator')) return s0;
+    const s = clone(s0); s.gen = !!on; return s;
+  }
   // 选现在研究哪一项（k 为空就不研究）
   function setResearch(s0, k) {
     if (k && (!TECHS[k] || !techOpen(s0, k))) return s0;
     const s = clone(s0); s.tech.cur = k || null; return s;
   }
   // 把书和关键物品摆进地图（开局、旧存档迁移时）。free：只摆在还没收复的楼里。最后保证每项要物品的科技，地图上至少有一样能用的
-  function stockMap(s, free) {
+  function stockMap(s, free, only) {
     const ok = t => !isBase(t) && (!free || !t.owned);
     const book = (t, br) => { const ks = Object.keys(TECHS).filter(k => !br || TECHS[k].br === br), k = pick(s, ks); t.books.push({ k, n: rand(s) < 0.12 ? 0 : ri(s, 4, 8), title: pick(s, BOOKS[TECHS[k].br]) }); };
     for (const t of s.tiles) {
       t.items = t.items || []; t.books = t.books || [];
       if (!ok(t)) continue;
-      for (const [k, I] of Object.entries(ITEMS)) if (I.src[t.t] && t.items.length < 2 && rand(s) < I.src[t.t]) t.items.push(k);
+      for (const [k, I] of Object.entries(ITEMS)) if (I.src[t.t] && t.items.length < 2 && (!only || only.includes(k)) && rand(s) < I.src[t.t]) t.items.push(k);
+      if (t.t === 'police') book(t, '武备');
+      else if (t.t === 'gas' || t.t === 'radio') book(t, '侦察');
+      if (only) continue;   // 旧存档迁移：只补新加的物品和新两支的书
       if (t.t === 'school') { book(t); book(t); }
       else if (t.t === 'temple') book(t, '农耕');
       else if (t.t === 'hospital') book(t, '医护');
@@ -459,7 +511,7 @@ const Sim = (() => {
   const plots = s => owned(s).filter(t => t.farm || (t.t === 'park' && !t.gutted));
   const ripe = (s, t) => !!t.crop && s.day - t.crop.d >= CROPS[t.crop.k].grow;
   // 一块菜园种某样作物在某季的倍率：搭了温室的冬天照样长（按初春、深秋里好的那季打七五折）。堆肥让收成多两成半
-  const plotK = (s, t, k, se) => t.hot && se === 'winter' && tech(s, 'hothouse') ? Math.max(cropK(k, se), 0.75 * Math.max(cropK(k, 'early'), cropK(k, 'late'))) : cropK(k, se);
+  const plotK = (s, t, k, se) => t.hot && se === 'winter' && tech(s, 'hothouse') ? Math.max(cropK(k, se), 0.75 * Math.max(cropK(k, 'early'), cropK(k, 'late'))) : cropK(k, se) * irrK(s, se);
   const plotY = (s, t) => farmYield(t) * (tech(s, 'compost') ? 1.25 : 1);
   const warm = (s, t, se) => t.hot && se === 'winter' && tech(s, 'hothouse');   // 今天这块温室要烧木料保温
   // 每天的产出（估算，不算零头）。farm 给了就当每块菜园都种着、按这个倍率收（看潜力，脚本和村子结局用）；不传就按种着的作物、当季和霜
@@ -474,6 +526,7 @@ const Sim = (() => {
     }
     for (const t of plots(s)) food += Math.floor(plotY(s, t) * (farm != null ? farm : ripe(s, t) ? plotK(s, t, t.crop.k, se) * (warm(s, t, se) ? 1 : frost) : 0));
     if (has(s, 'rooftop')) food += Math.floor(2 * (farm != null ? farm : cropK('greens', se) * frost));
+    food += s.racks || 0;
     return { food, mat, iron };
   };
   // 每天吃掉的食物
@@ -481,7 +534,7 @@ const Sim = (() => {
   const foodUse = s => {
     const n = s.surv.length + s.surv.filter(v => tr(v, 'bigeater')).length + (s.dog ? 1 : 0);
     const u = has(s, 'ration') ? Math.ceil(n * 0.7) : n;
-    return s.start && seasonOf(s) === 'winter' ? Math.ceil(u * 1.2) : u;
+    return s.start && seasonOf(s) === 'winter' ? Math.ceil(u * (tech(s, 'diet') ? 1.1 : 1.2)) : u;
   };
 
   // ---------- 粮仓 ----------
@@ -493,7 +546,7 @@ const Sim = (() => {
     const b = s.pantry.find(b => b.k === k && b.exp === exp);
     if (b) b.n += n; else s.pantry.push({ k, n, exp });
   }
-  function addFood(s, k, n) { if (n <= 0) return; stock(s, k, n, FOODS[k].life ? s.day + FOODS[k].life : 0); s.food += n; }
+  function addFood(s, k, n) { if (n <= 0) return; stock(s, k, n, FOODS[k].life ? s.day + lifeOf(s, k) : 0); s.food += n; }
   function draw(s, n) {   // 只出粮仓：先吃快坏的，返回吃掉了哪几种、各几份
     const out = {};
     s.pantry.sort((a, b) => (a.exp || 1e9) - (b.exp || 1e9));
@@ -543,13 +596,20 @@ const Sim = (() => {
       // 温室冬天每天烧 1 木料保温，烧不起就跟露天一样
       const hot = warm(s, t, se) && ripe(s, t) && s.mat >= 1;
       if (hot) { s.mat--; s.stats.heatWood = (s.stats.heatWood || 0) + 1; }
-      const k = hot ? plotK(s, t, t.crop ? t.crop.k : 'greens', se) : t.crop ? cropK(t.crop.k, se) : 0;
+      const k = hot ? plotK(s, t, t.crop ? t.crop.k : 'greens', se) : t.crop ? cropK(t.crop.k, se) * irrK(s, se) : 0;
       if (!ripe(s, t) || (s.wxNow === 'frost' && !hot) || !k) continue;
       t.acc = (t.acc || 0) + plotY(s, t) * k;
       const n = Math.floor(t.acc); t.acc -= n;
       if (n > 0) { addFood(s, t.crop.k, n); got[t.crop.k] = (got[t.crop.k] || 0) + n; s.stats.harvest = (s.stats.harvest || 0) + n; if (rand(s) < (tech(s, 'breed') ? 0.15 : 0.06)) s.seeds[t.crop.k] = (s.seeds[t.crop.k] || 0) + 1; }
     }
     if (has(s, 'rooftop') && s.wxNow !== 'frost') addFood(s, 'greens', Math.floor(2 * cropK('greens', se)));
+    // 水耕架：每两个每天 1 化学品当营养液，不够的架子今天不长；发电机开着就不用
+    if (s.racks) {
+      let n = s.racks;
+      if (!powered(s)) { const use = Math.min(s.chem || 0, Math.ceil(n / 2)); n = Math.min(n, use * 2); s.chem -= use; }
+      if (n) { addFood(s, 'greens', n); s.stats.rack = (s.stats.rack || 0) + n; }
+      else s.log.push({ d: s.day, tone: 'bad', msg: '没有化学品配营养液，水耕架今天没长。' });
+    }
     for (const t of owned(s)) if (t.t !== 'park' && eff(t).food) addFood(s, 'rice', eff(t).food);   // 菜市场
     for (const t of owned(s)) if (t.grove) t.grove.g = Math.min(GROVE, t.grove.g + (GROVE_SEA[se] ?? 1));   // 树长大
     return got;
@@ -578,11 +638,12 @@ const Sim = (() => {
         if (k) { seeds[k]--; p.crop = { k, d: day }; p.acc = 0; }
       }
       bare = Math.max(bare, P.filter(p => !p.crop).length);
-      const add = (k, m) => { if (m > 0) pantry.push({ k, n: m, exp: FOODS[k].life ? day + FOODS[k].life : 0 }); };
+      const add = (k, m) => { if (m > 0) pantry.push({ k, n: m, exp: FOODS[k].life ? day + lifeOf(s, k) : 0 }); };
       for (const p of P) if (p.crop && day - p.crop.d >= CROPS[p.crop.k].grow && plotK(s, p.t, p.crop.k, se)) { p.acc += plotY(s, p.t) * plotK(s, p.t, p.crop.k, se); const m = Math.floor(p.acc); p.acc -= m; add(p.crop.k, m); }
       if (has(s, 'rooftop')) add('greens', Math.floor(2 * cropK('greens', se)));
       for (const t of owned(s)) if (t.t !== 'park' && eff(t).food) add('rice', eff(t).food);
-      let need = se === 'winter' ? Math.ceil(u * 1.2) : u;
+      add('greens', s.racks || 0);
+      let need = se === 'winter' ? Math.ceil(u * (tech(s, 'diet') ? 1.1 : 1.2)) : u;
       pantry.sort((a, b) => (a.exp || 1e9) - (b.exp || 1e9));
       for (const b of pantry) { const m = Math.min(need, b.n); b.n -= m; need -= m; }
       pantry = pantry.filter(b => b.n > 0 && !(b.exp && b.exp <= day));
@@ -639,7 +700,7 @@ const Sim = (() => {
     const bar = s.brute && !isBase(t) ? Math.floor(barRaw / 2) : barRaw;   // 巨汉只撞得动街区的临时路障，据点的铁窗工事不受影响
     const place = (eff(t).def || 0) + (isBase(t) ? (s.dog ? 2 : 0) : 1) + (has(s, 'shifts') ? 1 : 0);   // 收复的地块都封过窗，自带 1；狗会在据点叫醒大家
     const team = s.surv.filter(v => ready(v) && guardAt(v, x, y, s));
-    let people = team.reduce((a, v) => a + Math.max(0, v.fight + (bonus[v.id] || 0) + (tr(v, 'nightowl') ? 2 : 0)) + (gear(v, 'spear') ? 1 : 0) + shot(v), 0);
+    let people = team.reduce((a, v) => a + Math.max(0, v.fight + (bonus[v.id] || 0) + (tr(v, 'nightowl') ? 2 : 0)) + (gear(v, 'spear') ? (tech(s, 'spear') ? 2 : 1) : 0) + shot(v), 0);
     if (team.length > 1 && team.some(v => tr(v, 'loud'))) people += team.length - 1;
     // 对讲机：相邻地块上拿着对讲机驻守的人，帮这里协调调度
     const radio = Math.min(4, 2 * nbrs(s, x, y).filter(([a, b]) => tile(s, a, b).owned)
@@ -649,7 +710,7 @@ const Sim = (() => {
     const tower = nbrs(s, x, y).filter(([a, b]) => tile(s, a, b).owned && hasTower(s, a, b))
       .reduce((n, [a, b]) => n + s.surv.filter(v => ready(v) && guardAt(v, a, b, s) && GEAR[v.gear] && GEAR[v.gear].tower).reduce((m, v) => m + shot(v), 0), 0);
     // 边上的工事：木栅 +1、铁丝网 +2（巨汉撞不开）、没触发过的钉板 3
-    const works = nFort(s, x, y, 'palisade') * (tech(s, 'carpentry') ? 2 : 1) + 2 * nFort(s, x, y, 'wire') + nFort(s, x, y, 'shock') * ((s.chem || 0) > 0 ? 4 : 2), trap = 3 * nFort(s, x, y, 'spikes', true);
+    const works = nFort(s, x, y, 'palisade') * (tech(s, 'carpentry') ? 2 : 1) + 2 * nFort(s, x, y, 'wire') + nFort(s, x, y, 'shock') * ((s.chem || 0) > 0 || powered(s) ? 4 : 2), trap = 3 * nFort(s, x, y, 'spikes', true);
     return { total: bar + place + people + tower + works + trap, radio, tower, works, trap, bar, barRaw, place, people, n: team.length, names: team.map(v => v.name) };
   }
 
@@ -670,8 +731,8 @@ const Sim = (() => {
         if (!n.owned) { e++; w += 1 + 0.5 * Math.min(n.z, 4) + (n.scream && !MUTE.includes(wx) ? 3 : 0) + (n.nest && !n.nest.sleep ? 2 : 0); }
       }
       if (!e) continue;
-      if (isBase(t)) w += 2;
-      w += 4 * nFort(s, x, y, 'decoy');   // 诱饵把尸群往这里引
+      if (isBase(t)) w += 2 + (powered(s) ? 3 : 0);   // 发电机的声音
+      w += (tech(s, 'lure') ? 8 : 4) * nFort(s, x, y, 'decoy');   // 诱饵把尸群往这里引
       edges += e;
       fronts.push({ x, y, w, e });
     }
@@ -682,7 +743,7 @@ const Sim = (() => {
     const W_ = fronts.reduce((a, f) => a + f.w, 0) || 1;
     const bonus = relBonus(s, s.surv.filter(ready)).b, arch = shooters(s);
     for (const f of fronts) {
-      const share = f.w / W_, lit = wx === 'fog' && (s.chem || 0) > 0 && nFort(s, f.x, f.y, 'light') > 0;   // 探照灯照着，雾夜也看得清
+      const share = f.w / W_, lit = wx === 'fog' && ((s.chem || 0) > 0 || powered(s)) && nFort(s, f.x, f.y, 'light') > 0;   // 探照灯照着，雾夜也看得清
       f.lo = Math.floor(h.lo * mult * share * (lit ? 1 : kl));
       f.hi = Math.max(f.lo + 1, Math.round(h.hi * mult * share * (lit ? 1 : kh)));
       f.lit = lit;
@@ -774,7 +835,7 @@ const Sim = (() => {
   function updateSeen(s) {
     for (const [x, y] of coords(s)) if (reachable(s, x, y)) tile(s, x, y).seen = true;
     // 地盘推到离巢两格以内（正好能派人去端的距离），就看得到它了
-    for (const [x, y] of nests(s)) if (near2(s, x, y)) findNest(s, x, y, '站在地盘边上望过去');
+    for (const [x, y] of nests(s)) if (hasNear(s, x, y, tech(s, 'survey') ? 3 : 2)) findNest(s, x, y, '站在地盘边上望过去');
   }
   function findNest(s, x, y, how) {
     const t = tile(s, x, y);
@@ -803,13 +864,13 @@ const Sim = (() => {
   // 住户看天：按各自的本事猜，猜对了引一条对得上的天象；猜错了要么把一条模棱两可的天象想歪了，要么干脆看走眼。
   // 一般和准的人只会错成相邻的天气，瞎猜的人什么都说得出口。台风的征兆很明显，谁都比平时准。老寒腿变天时膝盖疼，不变天时也不会乱报变天
   function guess(s, v, w, set, k) {
-    let acc = SKY_ACC[v.sky == null ? 1 : v.sky] * k;
+    let acc = SKY_ACC[Math.min(2, (v.sky == null ? 1 : v.sky) + (tech(s, 'clouds') ? 1 : 0))] * k;
     if (w === 'typhoon' || w === 'outer') acc += (1 - acc) * 0.6;
     const knee = tr(v, 'knees') && k === 1;
     let g = w;
     if (!(knee && KNEE_WX.includes(w)) && rand(s) >= acc) {
       const near = WX_NEAR[w].filter(x => set.includes(x)), any = set.filter(x => x !== w);
-      g = v.sky === 0 && any.length ? pick(s, any) : pick(s, near.length ? near : WX_NEAR[w]);
+      g = v.sky === 0 && !tech(s, 'clouds') && any.length ? pick(s, any) : pick(s, near.length ? near : WX_NEAR[w]);
       if (knee && KNEE_WX.includes(g)) g = w;
     }
     const both = SIGNS.map((x, j) => j).filter(j => SIGNS[j].w.includes(g) && SIGNS[j].w.includes(w));
@@ -828,7 +889,7 @@ const Sim = (() => {
     const n = night ? Math.min(pool.length, s.surv.length >= 6 ? 3 : 2) : Math.min(pool.length, 1);
     while (who.length < n) { const rest = pool.filter(v => !who.includes(v)); who.push(pick(s, rest)); }
     slot.say = who.map(v => guess(s, v, slot.w, set, night ? 1 : 0.8));
-    slot.radio = s.city !== 'noradio' && owned(s).some(t => eff(t).radio);
+    slot.radio = s.city !== 'noradio' && (owned(s).some(t => eff(t).radio) || tech(s, 'radioset'));
     slot.pick = slot.say.reduce((a, o, i) => recScore(byId(s, o.id)) > recScore(byId(s, slot.say[a].id)) ? i : a, 0);
     slot.g = slot.radio ? slot.w : slot.say.length ? slot.say[slot.pick].g : 'cloudy';
     slot.src = slot.radio ? 'radio' : null;
@@ -880,7 +941,7 @@ const Sim = (() => {
   function newGame(seed, opt = {}) {
     seed = (seed == null ? Math.floor(Math.random() * 1e9) : seed) | 0;
     const s = {
-      v: VERSION, seed, rng: seed, day: 1, food: 21, mat: 6, iron: 6, chem: 0, parts: 0, powder: 0, arrow: 0, ammo: 0, forts: {}, fort: 2, wall: 12, wallMax: 12, tech: { done: {}, prog: {}, cur: null, acc: 0 }, items: {},
+      v: VERSION, seed, rng: seed, day: 1, food: 21, mat: 6, iron: 6, chem: 0, parts: 0, powder: 0, arrow: 0, ammo: 0, forts: {}, fort: 2, wall: 12, wallMax: 12, tech: { done: {}, prog: {}, cur: null, acc: 0 }, items: {}, racks: 0, gen: false,
       tiles: [], surv: [], gone: [], nextId: 1, rel: [], log: [], over: null, rescueDay: null, event: null, rules: [], brute: false,
       city: null, origin: null, queue: [], camp: null, sos: null, dog: false, stash: [], season: null, start: null, wxNow: null, wx: null, radio: false, winterIn: false,
       pantry: [{ k: 'can', n: 9, exp: 0 }, { k: 'rice', n: 12, exp: 1 + FOODS.rice.life }], seeds: { greens: 2, potato: 2, radish: 1, melon: 1 }, diet: [],
@@ -1061,13 +1122,14 @@ const Sim = (() => {
   const near2 = (s, x, y) => s.tiles.some((t, i) => t.owned && Math.abs(i % s.W - x) + Math.abs(Math.floor(i / s.W) - y) <= 2);
   const bikeReach = (s, v, x, y) => gear(v, 'bike') && !storm(s) && !flooded(s) && near2(s, x, y);
   const nestReach = (s, x, y) => { const n = tile(s, x, y).nest; return !!(n && n.found) && (storm(s) ? frontier(s, x, y) : near2(s, x, y)); };   // 端巢是远征：离地盘两格以内就能直接杀过去（台风天只能打相邻的）
-  const canGo = (s, v, x, y) => reachable(s, x, y) || bikeReach(s, v, x, y);
+  const trailReach = (s, x, y) => tech(s, 'trail') && !storm(s) && !flooded(s) && near2(s, x, y);   // 路标：认得路，离地盘两格以内都能走过去
+  const canGo = (s, v, x, y) => reachable(s, x, y) || bikeReach(s, v, x, y) || trailReach(s, x, y);
 
   function canDo(s, v, k, x, y, item) {
     if (s.over || !ready(v)) return false;
     if ((k === 'defend' || k === 'fortify') && x == null) return true;
     if (k === 'study') return x == null;
-    if (k === 'craft') return x == null && !!GEAR[item] && !!GEAR[item].cost && (!GEAR[item].tech || tech(s, GEAR[item].tech));
+    if (k === 'craft') return x == null && !!GEAR[item] && !!GEAR[item].cost && (!GEAR[item].tech || tech(s, GEAR[item].tech)) && (item !== 'rack' || (s.racks || 0) < RACK_MAX);
     const t = tile(s, x, y);
     if (!t) return false;
     if (k === 'defend') return t.owned;
@@ -1109,9 +1171,9 @@ const Sim = (() => {
   const scavRisk0 = (z, fight) => z > 0 ? clamp(0.07 * z - 0.03 * fight, 0.03, 0.6) : 0;
   const clearRisk0 = (z, fight) => clamp(0.06 * z - 0.04 * fight, 0.03, 0.55);
   const luck = v => tr(v, 'lucky') ? 0.7 : 1;
-  const scavRisk = (s, v, z, fight = v.fight) => scavRisk0(z, fight) * luck(v) * (tr(v, 'coward') ? 0.5 : 1) * (has(s, 'scout') ? 0.6 : 1) * (gear(v, 'bike') ? 0.7 : 1) * (s.wxNow === 'rain' ? 0.7 : s.wxNow === 'drizzle' || s.wxNow === 'outer' ? 0.85 : 1);
-  const clearRisk = (s, v, z, fight = v.fight) => Math.min(0.8, clearRisk0(z, fight) * luck(v) * (tr(v, 'hothead') ? 1.5 : 1) * (gear(v, 'axe') ? 0.5 : 1) * (s.wxNow === 'heat' ? 0.6 : 1));
-  const stripYield = (s, v) => Math.ceil((Math.max(1, v.build) + 2) * (has(s, 'permit') ? 1.5 : 1)) + (gear(v, 'crowbar') ? 3 : 0);
+  const scavRisk = (s, v, z, fight = v.fight) => scavRisk0(z, fight) * luck(v) * (tr(v, 'coward') ? 0.5 : 1) * (has(s, 'scout') ? 0.6 : 1) * (gear(v, 'bike') ? 0.7 : 1) * (tech(s, 'armor') ? 0.8 : 1) * (s.wxNow === 'rain' ? 0.7 : s.wxNow === 'drizzle' || s.wxNow === 'outer' ? 0.85 : 1);
+  const clearRisk = (s, v, z, fight = v.fight) => Math.min(0.8, clearRisk0(z, fight) * luck(v) * (tr(v, 'hothead') ? 1.5 : 1) * (gear(v, 'axe') ? 0.5 : 1) * (tech(s, 'armor') ? 0.8 : 1) * (s.wxNow === 'heat' ? 0.6 : 1));
+  const stripYield = (s, v) => Math.ceil((Math.max(1, v.build) + 2) * (has(s, 'permit') ? 1.5 : 1)) + (gear(v, 'crowbar') ? 3 : 0) + (tech(s, 'dismantle') ? 2 : 0);
   const fortGain = (s, v) => 1 + (v.build >= 4 ? 1 : 0) + (tr(v, 'handy') ? 1 : 0) + (has(s, 'sandbag') ? 1 : 0) + (tech(s, 'carpentry') ? 1 : 0);
   const scavCount = (s, v) => v.scav + (tr(v, 'finder') ? 2 : 0) + (has(s, 'deliver') ? 1 : 0) + 0;
   // 建造 4 以上的人做东西省一点：最贵的那项材料少 1
@@ -1121,7 +1183,8 @@ const Sim = (() => {
     if (v.build >= 4) { const k = Object.keys(c).sort((a, b) => c[b] - c[a])[0]; c[k] = Math.max(1, c[k] - 1); }
     return c;
   };
-  const killBonus = v => (tr(v, 'hothead') ? 1 : 0) + (gear(v, 'axe') ? 1 : 0);
+  const killBonus = (v, s) => (tr(v, 'hothead') ? 1 : 0) + (gear(v, 'axe') ? 1 : 0) + (s && tech(s, 'tactics') ? 1 : 0);
+  const nestK = s => tech(s, 'molotov') ? 2 : 1;   // 燃烧瓶：砍到巢上的力气翻倍
   const rescueOdds = (z, fight) => z === 0 ? 1 : clamp(1 - 0.1 * z + 0.06 * fight, 0.15, 1);
 
   // 给界面用的单人预估
@@ -1133,13 +1196,13 @@ const Sim = (() => {
       return { gain: `约 +${f} 食物 +${Math.min(n, tot) - f + (flooded(s) ? 1 : 0)} 材料${cb ? `，撬柜子再 +${cb}` : ''}${t.gear.length ? `，带回${gearNames(t.gear)}` : ''}${reachable(s, x, y) ? '' : '（骑车去）'}`, risk: scavRisk(s, v, t.z) };
     }
     if (k === 'clear') {
-      const ex = killBonus(v), k = wxWork(s);
+      const ex = killBonus(v, s), k = wxWork(s);
       const lo = Math.ceil((Math.max(1, Math.floor(v.fight * 0.8)) + ex) * k), hi = Math.ceil((Math.floor(v.fight * 0.8 + 1.6) + ex) * k);
-      if (t.nest) return { gain: `可砍 ${lo === hi ? lo : lo + '–' + hi} 下：先砍游荡的 ${t.z} 只，剩下的力气砍巢（巢还剩 ${t.nest.hp}/${nestHp(t.nest.lv)}）`, risk: clearRisk(s, v, Math.max(t.z, 4)) };
+      if (t.nest) return { gain: `可砍 ${lo === hi ? lo : lo + '–' + hi} 下：先砍游荡的 ${t.z} 只，剩下的力气${nestK(s) > 1 ? '加倍' : ''}砍巢（巢还剩 ${t.nest.hp}/${nestHp(t.nest.lv)}）`, risk: clearRisk(s, v, Math.max(t.z, 4)) };
       return { gain: `可清掉 ${lo === hi ? lo : lo + '–' + hi} 只`, risk: clearRisk(s, v, t.z) };
     }
     if (k === 'craft') return { gain: `打造${GEAR[x].name}，耗 ${costTxt(craftCost(v, x, s))}；夜里照样守据点`, risk: 0 };
-    if (k === 'study') { const c = s.tech.cur; return { gain: c ? `研究「${TECHS[c].name}」每天 +${studyPts(v)}${s.tiles.some(t => t.owned && t.t === 'school') ? '（有国小再多一半）' : ''}，进度 ${s.tech.prog[c] || 0}/${TECHS[c].pts}；夜里照样守据点` : '还没定研究哪一项，先去“研究”分页选', risk: 0 }; }
+    if (k === 'study') { const c = s.tech.cur; return { gain: c ? `研究「${TECHS[c].name}」每天 +${studyPts(v)}${s.tiles.some(t => t.owned && t.t === 'school') ? '（有国小再多一半）' : ''}${powered(s) ? '（发电机开着，再多一半）' : ''}，进度 ${s.tech.prog[c] || 0}/${TECHS[c].pts}；夜里照样守据点` : '还没定研究哪一项，先去“研究”分页选', risk: 0 }; }
     if (k === 'hot') return { gain: '搭温室，耗 4 木料；冬天照样长、不怕霜，每天烧 1 木料', risk: 0 };
     if (k === 'grove') return { gain: `整地进度 +${Math.ceil((v.build + (tr(v, 'handy') ? 1 : 0)) * wxWork(s))}，还差 ${TILL - (t.till || 0)}；种下后长 ${GROVE} 天（冬天不长）才成林，之后每天 +1 木料`, risk: 0 };
     if (k === 'work') { const W_ = WORKS[t.t]; return { gain: `${W_.name}：${Object.keys(W_.use).length ? `用 ${costTxt(W_.use)} ` : ''}出 ${W_.n(v)} ${RES[W_.out].name}；工厂耐久 ${cond(t)}/${COND_MAX}，开一天掉 1；机器响会引来丧尸`, risk: 0 }; }
@@ -1223,13 +1286,19 @@ const Sim = (() => {
       const re = outEdges(s, tx, ty).map(d => fortAt(s, tx, ty, d)).filter(f => f && f.sprung);
       if (re.length) { re.forEach(f => { f.sprung = false; }); L(`${v.name}把${re.length} 处钉板陷阱重新布置好了。`); }
       if (!t) {
-        s.fort = Math.min(FORT_MAX, s.fort + g);
+        s.fort = Math.min(fortMax(s), s.fort + g);
         s.wall = Math.min(s.wallMax, s.wall + v.build);
         L(`${v.name}焊了一整天的铁窗，工事 +${g}，铁门修好 ${v.build} 点。`);
       } else {
         t.bar = Math.min(barMax(s), t.bar + g);
         L(`${v.name}在${tname(t)}堆起沙包和铁皮，路障 +${g}。`);
       }
+    }
+
+    // 发电机：开着就每天烧 1 化学品，烧不起就停
+    if (s.gen && tech(s, 'generator')) {
+      if ((s.chem || 0) >= 1) { s.chem--; s.genDay = s.day; s.stats.genChem = (s.stats.genChem || 0) + 1; }
+      else L('没有化学品，发电机停了。', 'bad');
     }
 
     // 打造装备
@@ -1249,7 +1318,9 @@ const Sim = (() => {
         continue;
       }
       if (GEAR[it].into === 'iron') { s.iron += GEAR[it].ammo; L(`${v.name}守着炉子烧了一整天，熔出 ${GEAR[it].ammo} 份废铁。`, 'good'); continue; }
-      if (GEAR[it].ammo) { const into = GEAR[it].into; s[into] = (s[into] || 0) + GEAR[it].ammo; L(into === 'arrow' ? `${v.name}削了一整天，做出 ${GEAR[it].ammo} 支箭。` : `${v.name}压了一整天，做出 ${GEAR[it].ammo} 发子弹。`, 'good'); continue; }
+      if (it === 'rack') { s.racks = Math.min(RACK_MAX, (s.racks || 0) + 1); L(`${v.name}焊好一个水耕架，现在有 ${s.racks} 个。`, 'good'); continue; }
+      if (it === 'parts') { s.parts = (s.parts || 0) + 1; L(`${v.name}在据点敲了一整天，敲出 1 份零件。`, 'good'); continue; }
+      if (GEAR[it].ammo) { const into = GEAR[it].into, n = it === 'arrows' && tech(s, 'fletch') ? 9 : GEAR[it].ammo; s[into] = (s[into] || 0) + n; L(into === 'arrow' ? `${v.name}削了一整天，做出 ${n} 支箭。` : `${v.name}压了一整天，做出 ${n} 发子弹。`, 'good'); continue; }
       s.stash.push(it);
       L(`${v.name}敲敲打打了一整天，做出一件${GEAR[it].name}，放进了仓库。`, 'good');
     }
@@ -1260,7 +1331,7 @@ const Sim = (() => {
       const cur = s.tech.cur && techOpen(s, s.tech.cur) ? s.tech.cur : null;
       if (!cur) L(`${studying.map(v => v.name).join('、')}想研究点什么，可是还没定研究哪一项。`);
       else {
-        s.tech.acc += studying.reduce((a, v) => a + studyPts(v), 0) * (s.tiles.some(t => t.owned && t.t === 'school') ? 1.5 : 1);
+        s.tech.acc += studying.reduce((a, v) => a + studyPts(v), 0) * (s.tiles.some(t => t.owned && t.t === 'school') ? 1.5 : 1) * (powered(s) ? 1.5 : 1);
         const n = Math.floor(s.tech.acc); s.tech.acc -= n;
         addProg(s, cur, n);
         const T = TECHS[cur], p = s.tech.prog[cur];
@@ -1311,10 +1382,10 @@ const Sim = (() => {
           const z0 = t.nest && !t.nest.sleep ? Math.max(t.z, 4) : t.z, f = Math.max(0, v.fight + bonus[v.id]);   // 巢里到处是卵和烂肉，地上没丧尸也危险
           if (rand(s) < clearRisk(s, v, z0, f)) injure(v, z0, t);
           if (v.dead) continue;
-          const p = Math.ceil((Math.max(f > 0 ? 1 : 0, Math.floor(f * 0.8 + rand(s) * 1.6)) + killBonus(v)) * wxWork(s));
+          const p = Math.ceil((Math.max(f > 0 ? 1 : 0, Math.floor(f * 0.8 + rand(s) * 1.6)) + killBonus(v, s)) * wxWork(s));
           const k1 = Math.min(p, t.z);
           t.z -= k1; kills += k1;
-          if (t.nest && p > k1) { const h = Math.min(p - k1, t.nest.hp); t.nest.hp -= h; hits += h; }
+          if (t.nest && p > k1) { const h = Math.min((p - k1) * nestK(s), t.nest.hp); t.nest.hp -= h; hits += h; }
           if (t.nest && t.nest.hp <= 0) { t.nest = null; razed = true; }
         }
         s.stats.killed += kills;
@@ -1391,7 +1462,7 @@ const Sim = (() => {
         for (let i = 0; i < got; i++) { const mk = matKind(s, t); s[mk] = (s[mk] || 0) + 1; gk[mk] = (gk[mk] || 0) + 1; }
         s.stats.stripped += got;
         takeGear(t, who);
-        if (has(s, 'wrecking') && got > 0) s.fort = Math.min(FORT_MAX, s.fort + 1);
+        if (has(s, 'wrecking') && got > 0) s.fort = Math.min(fortMax(s), s.fort + 1);
         let msg = `${who}拆了${TYPES[t.t].name}的门窗、货架和钢筋，带回 ${resTxt(gk) || '0 木料'}。`;
         if (lostPerk) msg += '这栋楼原本的用处没了。';
         if (t.strip <= 0) { msg += '只剩空壳了。'; t.t = 'ruin'; t.gutted = false; }
@@ -1462,7 +1533,7 @@ const Sim = (() => {
     // 吃腻了：连着 5 天都只有同一种东西吃，每天两成机会有人赌气
     s.diet = (s.diet || []).concat([Object.keys(ate)]).slice(-5);
     const menu = new Set(s.diet.flat());
-    if (s.diet.length >= 5 && menu.size === 1 && rand(s) < 0.2) {
+    if (s.diet.length >= 5 && menu.size === 1 && !tech(s, 'diet') && rand(s) < 0.2) {
       const cand = s.surv.filter(v => ready(v));
       if (cand.length) { const v = pick(s, cand); v.sulk = Math.max(v.sulk, 2); L(`连着好几天只有${FOODS[[...menu][0]].name}吃，${v.name}吃不下了，明天不想干活。`, 'bad'); }
     }
@@ -1481,7 +1552,7 @@ const Sim = (() => {
         L(`断粮了。${v.name}半夜收拾东西走了。`, 'bad');
       }
     } else s.hunger = 0;
-    if (s.wxNow === 'rain' || s.wxNow === 'humid') {   // 发霉：大雨天超过每人 4 份的两成，回南天超过每人 2 份的一成半
+    if ((s.wxNow === 'rain' || s.wxNow === 'humid') && !tech(s, 'cellar')) {   // 发霉（有地窖就不会）：大雨天超过每人 4 份的两成，回南天超过每人 2 份的一成半
       const [per, k] = s.wxNow === 'rain' ? [4, 0.2] : [2, 0.15], extra = s.food - s.surv.length * per;
       if (extra > 0) { const rot = Math.max(1, Math.floor(extra * k)); s.food -= rot; L(`${s.wxNow === 'rain' ? '下了一天大雨' : '回南天到处湿答答'}，${rot} 份存粮发霉了。`); }
     }
@@ -1505,7 +1576,7 @@ const Sim = (() => {
     const lostTiles = [];
     for (const f of plan.fronts) {
       const t = tile(s, f.x, f.y), str = ri(s, f.lo, f.hi), def = f.def.total;
-      if (str > 0 && nFort(s, f.x, f.y, 'shock')) { const used = Math.min(s.chem || 0, nFort(s, f.x, f.y, 'shock')); s.chem -= used; s.stats.shockChem = (s.stats.shockChem || 0) + used; }   // 电网通电烧化学品
+      if (str > 0 && nFort(s, f.x, f.y, 'shock') && !powered(s)) { const used = Math.min(s.chem || 0, nFort(s, f.x, f.y, 'shock')); s.chem -= used; s.stats.shockChem = (s.stats.shockChem || 0) + used; }   // 电网通电烧化学品
       if (str > 0 && f.def.trap) { outEdges(s, f.x, f.y).map(d => fortAt(s, f.x, f.y, d)).filter(x => x && x.k === 'spikes' && !x.sprung).forEach(x => { x.sprung = true; }); trapped++; }
       if (str <= def) { held++; continue; }
       const diff = str - def;
@@ -1541,11 +1612,11 @@ const Sim = (() => {
         }
       }
     }
-    if (arrows) { const back = Math.floor(arrows / 2); s.arrow -= arrows - back; L(`夜里放了 ${arrows} 支箭，天亮捡回 ${back} 支。`); }
+    if (arrows) { const back = Math.floor(arrows * (tech(s, 'fletch') ? 0.75 : 0.5)); s.arrow -= arrows - back; L(`夜里放了 ${arrows} 支箭，天亮捡回 ${back} 支。`); }
     if (bullets) { s.ammo -= bullets; L(`夜里打了 ${bullets} 发子弹。枪声传得很远，附近的丧尸又多了一些。`, 'bad'); }
     // 探照灯：雾夜每盏烧 1 化学品
     const lamps = plan.fronts.filter(f => f.lit).length;
-    if (lamps) s.chem = Math.max(0, s.chem - lamps);
+    if (lamps && !powered(s)) s.chem = Math.max(0, s.chem - lamps);
     if (plan.fronts.length && held === plan.fronts.length) L(`夜里 ${held} 处边界都遭到冲击，全部守住了。`, 'good');
     else if (held) L(`另外 ${held} 处边界守住了。`);
     // 台风：路障被吹垮一层，街上的丧尸被吹散一些
@@ -1885,7 +1956,7 @@ const Sim = (() => {
           { label: '趁现在送走', note: '大家会难过，但不会有别人受伤', ok: true },
           { label: '绑起来，再赌一晚', note: '三成机会熬过来；熬不过去，会有人被咬', ok: true },
           { label: '用急救包', note: s.stash.includes('medkit') ? '最后的机会，还来得及' : '仓库里没有急救包', ok: s.stash.includes('medkit') },
-        ],
+        ].concat(tech(s, 'surgery') ? [{ label: '截肢', note: '人能保住，但战斗和搜刮各少 1，要躺 8 天', ok: true }] : []),
       };
     },
     // ---- 求救信号：地图上出现一个有期限的救人目标
@@ -2127,6 +2198,7 @@ const Sim = (() => {
       const kill = () => { if (v.gear) s.stash.push(v.gear); s.surv = s.surv.filter(u => u.id !== v.id); s.gone.push(v.name); s.stats.lost++; s.stats.turned = (s.stats.turned || 0) + 1; };
       if (i === 0) { kill(); L(`你们在顶楼送走了${v.name}。那天晚上没人说话。`, 'bad'); }
       else if (i === 2) { s.stash.splice(s.stash.indexOf('medkit'), 1); v.inf = 0; v.inj = Math.max(v.inj, 1); L(`最后一个急救包打了进去。中午${v.name}退烧了，还得躺一天。`, 'good'); }
+      else if (i === 3) { v.inf = 0; v.inj = 9; v.fight = Math.max(1, v.fight - 1); v.scav = Math.max(1, v.scav - 1); s.stats.amputate = (s.stats.amputate || 0) + 1; L(`大家按住${v.name}，用酒精烧过的刀把发黑的地方整个截掉了。人保住了，以后干活会吃力一些。`, 'good'); }
       else if (rand(s) < 0.3) { v.inf = 0; v.inj = INJ_DAYS; L(`${v.name}烧了一整夜，天亮时退烧了。没人知道是怎么熬过来的。`, 'good'); }
       else {
         kill();
@@ -2311,12 +2383,16 @@ const Sim = (() => {
       s.tech = { done: {}, prog: {}, cur: null, acc: 0 }; s.items = {};
       stockMap(s, true);
     }
+    if (s.v < 18) {   // v17 → v18：科技多了武备、侦察两支。没收复的楼里补上新的物品和新两支的书
+      s.racks = 0; s.gen = false;
+      stockMap(s, true, ['engine', 'pump', 'casing', 'fuel', 'scalpel', 'atlas']);
+    }
     s.v = VERSION;
     return s;
   }
 
   return {
-    VERSION, MAPS, mapOf, TECHS, ITEMS, BRANCHES, tech, techOpen, haveNeed, setResearch, studyPts, plotK, SEASON_LEN, FARM_FOOD, TILL, farmYield, FOODS, CROPS, cropK, plots, ripe, eatSeeds, setCrop, nextSeason, SEED_FOOD, SEED_P, RES, COST, canPay, costTxt, GROVE, LOG, grown, FORTS, DIRS, outEdges, fortAt, shooters, WORKS, COND_MAX, FIX, cond, WX, FLOOD_TXT, KNEE_WX, trustWx, SEASONS, SEASON_ORDER, seasonOf, forecast, selfFed, landing, INF_DAYS, NEST_R, NEST_HORDE, HORDE_BASE, nestHp, nestLv, nestZ, nestHint, FORT_MAX, BAR_MAX, TYPES, TRAITS, RULES, CITIES, ORIGINS, GEAR, equip, useMedkit, bikeReach, nestReach, canGo, craftCost, barMax, foodUse, has, surgeEvery, surgeIn,
+    VERSION, MAPS, mapOf, TECHS, ITEMS, BRANCHES, tech, techOpen, haveNeed, setResearch, setGen, powered, fortMax, RACK_MAX, studyPts, plotK, SEASON_LEN, FARM_FOOD, TILL, farmYield, FOODS, CROPS, cropK, plots, ripe, eatSeeds, setCrop, nextSeason, SEED_FOOD, SEED_P, RES, COST, canPay, costTxt, GROVE, LOG, grown, FORTS, DIRS, outEdges, fortAt, shooters, WORKS, COND_MAX, FIX, cond, WX, FLOOD_TXT, KNEE_WX, trustWx, SEASONS, SEASON_ORDER, seasonOf, forecast, selfFed, landing, INF_DAYS, NEST_R, NEST_HORDE, HORDE_BASE, nestHp, nestLv, nestZ, nestHint, FORT_MAX, BAR_MAX, TYPES, TRAITS, RULES, CITIES, ORIGINS, GEAR, equip, useMedkit, bikeReach, nestReach, canGo, craftCost, barMax, foodUse, has, surgeEvery, surgeIn,
     newGame, endDay, setTask, canDo, preview, resolveEvent, eventView,
     nightPlan, tileDefense, horde, beds, income, foodAhead, owned, tile, reachable, frontier, byId, ready, score, eff, tname,
     arrivalChance, serialize, deserialize, SKILL,

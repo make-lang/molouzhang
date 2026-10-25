@@ -24,11 +24,12 @@ for (let i = 0; i < 400; i++) {
     }
     // 科技：没在研究就挑第一项能研究的
     if (!s.tech.cur) { const k = Object.keys(Sim.TECHS).find(k => Sim.techOpen(s, k)); if (k) s = Sim.setResearch(s, k); }
+    if (s.day % 10 === 5) s = Sim.setGen(s, !s.gen);   // 发电机时开时关
     // 随机给几个人派活，覆盖各种任务分支
     for (const v of s.surv) {
       if ((v.id + s.day) % 7 === 3) { s = Sim.setTask(s, v.id, { k: 'study' }); continue; }
       { const pl = Sim.plots(s).find(t => !t.hot), j = pl ? s.tiles.indexOf(pl) : -1; if (pl && (v.id + s.day) % 6 === 1 && Sim.canDo(s, v, 'hot', j % s.W, Math.floor(j / s.W))) { s = Sim.setTask(s, v.id, { k: 'hot', x: j % s.W, y: Math.floor(j / s.W) }); continue; } }
-      if ((v.id + s.day) % 9 === 0 && s.mat >= 6) { s = Sim.setTask(s, v.id, { k: 'craft', item: ['crowbar', 'axe', 'helmet', 'spear', 'bow', 'xbow', 'arrows', 'medkit', 'bullets', 'ingot', 'pickle'][s.day % 11] }); continue; }
+      if ((v.id + s.day) % 9 === 0 && s.mat >= 6) { s = Sim.setTask(s, v.id, { k: 'craft', item: ['crowbar', 'axe', 'helmet', 'spear', 'bow', 'xbow', 'arrows', 'medkit', 'bullets', 'ingot', 'pickle', 'rack', 'parts', 'reload'][s.day % 14] }); continue; }
       const x = (v.id * 3 + s.day) % s.W, y = (v.id * 5 + s.day) % s.H;
       // 造工事：在朝外的边上轮流造各种
       const fk = Object.keys(Sim.FORTS)[(v.id + s.day) % Object.keys(Sim.FORTS).length], ed = Sim.outEdges(s, x, y);
@@ -125,6 +126,30 @@ if (ts.surv.find(v => v.id === ts.surv[2].id && v.inf > 0) && !ts.log.some(l => 
   while (ts.event) ts = first(ts);
   const f0 = ts.food, m0 = ts.mat; ts = Sim.endDay(ts);
   if (!ts.over && ts.tiles[j].owned && ts.tiles[j].crop && !(ts.stats.heatWood > 0)) throw new Error('温室冬天没烧木料'); }
+// 水耕架、发电机、追踪、截肢
+{ let hs = Sim.newGame(23, { season: 'spring' });
+  while (hs.event) hs = first(hs);
+  for (const k of Object.keys(Sim.TECHS)) if (k !== 'track') hs.tech.done[k] = true;
+  Object.assign(hs, { mat: 20, iron: 20, chem: 4 });
+  hs = Sim.setTask(hs, hs.surv[0].id, { k: 'craft', item: 'rack' });
+  hs = Sim.endDay(hs); while (hs.event) hs = first(hs);
+  if (hs.racks !== 1) throw new Error('水耕架没做出来');
+  const c0 = hs.chem; hs = Sim.endDay(hs); while (hs.event) hs = first(hs);
+  if (!(hs.stats.rack > 0) || hs.chem !== c0 - 1) throw new Error('水耕架没长或没用化学品');
+  hs = Sim.setGen(hs, true); hs.chem = 3;
+  const plan = Sim.nightPlan(hs), r0 = hs.stats.rack; hs = Sim.endDay(hs); while (hs.event) hs = first(hs);
+  if (hs.chem !== 2 || hs.stats.rack !== r0 + 1) throw new Error('发电机没烧化学品或水耕架还在用化学品');
+  if (!plan.fronts.length) throw new Error('nightPlan 没有边界');
+  hs.tech.prog.track = Sim.TECHS.track.pts; hs.items.atlas = 1; hs.tiles.forEach((t, i) => { if (t.nest) t.nest.found = false; });
+  hs.surv[0].task = { k: 'study' }; hs.tech.cur = 'track';
+  hs = Sim.endDay(hs); while (hs.event) hs = first(hs);
+  if (!hs.tech.done.track || hs.tiles.some(t => t.nest && !t.nest.found)) throw new Error('追踪没标出所有的巢');
+  const v = hs.surv[1]; v.inf = -1; hs.queue.push({ day: hs.day, id: 'turn', p: { id: v.id } }); hs.event = { id: 'turn', p: { id: v.id } };
+  const f0 = v.fight; hs = Sim.resolveEvent(hs, 3);
+  const v2 = Sim.byId(hs, v.id); if (!v2 || v2.inf !== 0 || v2.fight !== Math.max(1, f0 - 1)) throw new Error('截肢没保住人');
+  // v17 存档迁移：补上新两支的书和物品
+  const o = JSON.parse(Sim.serialize(Sim.newGame(5))); o.v = 17; delete o.racks; delete o.gen;
+  const m2 = Sim.deserialize(JSON.stringify(o)); if (m2.racks !== 0 || m2.v !== Sim.VERSION) throw new Error('v17 迁移失败'); }
 console.log(`冒烟测试通过：400 局，平均撑到第 ${(days / 400).toFixed(1)} 天；v5 存档迁移后跑到第 ${m.day} 天`);
 console.log(`白天天气：${JSON.stringify(wxSeen)}`);
 console.log(`结局：${JSON.stringify(endings)}`);

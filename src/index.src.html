@@ -1032,6 +1032,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     body.scrollTop = 0;
     body.querySelectorAll('[data-task]').forEach(b => b.onclick = () => commit(Sim.setTask(S, selSurv, b.dataset.task === 'study' ? { k: 'study' } : { k: b.dataset.task, x: selTile.x, y: selTile.y })));
     body.querySelectorAll('[data-research]').forEach(b => b.onclick = () => commit(Sim.setResearch(S, b.dataset.research)));
+    body.querySelectorAll('[data-gen]').forEach(b => b.onclick = () => commit(Sim.setGen(S, b.dataset.gen === '1')));
     body.querySelectorAll('[data-study]').forEach(b => b.onclick = () => commit(Sim.setTask(S, selSurv, { k: 'study' })));
     body.querySelectorAll('[data-recall]').forEach(b => b.onclick = () => commit(Sim.setTask(S, +b.dataset.recall, { k: 'defend' })));
     body.querySelectorAll('[data-give]').forEach(b => b.onclick = () => commit(Sim.equip(S, selSurv, b.dataset.give)));
@@ -1258,15 +1259,20 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
   function techHtml() {
     const v = selSurv != null ? Sim.byId(S, selSurv) : null, TT = Sim.TECHS, cur = S.tech.cur, IT = Sim.ITEMS;
     const who = S.surv.filter(u => u.task.k === 'study' && Sim.ready(u)), school = Sim.owned(S).some(t => t.t === 'school');
-    const rate = who.reduce((a, u) => a + Sim.studyPts(u), 0) * (school ? 1.5 : 1);
+    const rate = who.reduce((a, u) => a + Sim.studyPts(u), 0) * (school ? 1.5 : 1) * (Sim.powered(S) ? 1.5 : 1);
     const bar = (p, n) => `<span class="hp" style="display:inline-block;vertical-align:middle"><i style="width:${Math.round(p / n * 100)}%"></i></span>`;
     const needTxt = k => TT[k].need ? `要用掉一样：${TT[k].need.map(i => `<span class="${(S.items[i] || 0) > 0 ? 'c-good' : ''}">${IT[i].name}${(S.items[i] || 0) > 0 ? `×${S.items[i]}` : ''}</span>`).join(' 或 ')}` : '不用特别的东西';
-    let h = `<div class="gh">正在研究 <span class="dim">每天 ${rate % 1 ? rate.toFixed(1) : rate} 点${school ? '（国小的图书室多一半）' : ''}</span></div>`;
+    let h = `<div class="gh">正在研究 <span class="dim">每天 ${rate % 1 ? rate.toFixed(1) : rate} 点${school ? '（国小的图书室多一半）' : ''}${Sim.powered(S) ? '（发电机开着，再多一半）' : ''}</span></div>`;
     if (cur) {
       const p = S.tech.prog[cur] || 0, T2 = TT[cur], stuck = p >= T2.pts && !Sim.haveNeed(S, cur);
       h += `<div class="box ${stuck ? 'fail' : 'safe'}"><span class="c-amber">${T2.name}</span>　${bar(p, T2.pts)} ${p}/${T2.pts}${rate && !stuck && p < T2.pts ? `　<span class="dim">约 ${Math.ceil((T2.pts - p) / rate)} 天</span>` : ''}<br><span class="dim">${T2.desc}<br>${needTxt(cur)}${stuck ? '。<span class="c-red">进度满了，就差这样东西</span>' : ''}</span></div>`;
     } else h += `<div class="dim">还没定研究哪一项。在下面挑一项。</div>`;
     h += `<div class="dim">${who.length ? `在研究的：${who.map(u => u.name).join('、')}。` : '还没有人在研究。'}研究的人在据点干活，夜里照样守据点；大学生、国中老师研究得快一倍。书、懂行的人也会给进度。</div>`;
+    if (Sim.tech(S, 'generator') || Sim.tech(S, 'hydro')) {
+      h += `<div class="gh">设施</div>`;
+      if (Sim.tech(S, 'generator')) h += `<div class="gi"><div class="row2"><span><span class="c-amber">发电机</span>　${S.gen ? (Sim.powered(S) ? '<span class="c-good">开着</span>' : '<span class="c-red">没化学品，停了</span>') : '<span class="dim">关着</span>'}</span><button class="btn" data-gen="${S.gen ? 0 : 1}">${S.gen ? '关掉' : '打开'}</button></div><span class="dim">开着每天烧 1 化学品（现在 ${S.chem || 0}）：研究快一半，电网、探照灯、水耕架不用化学品；据点会多招一些尸群。</span></div>`;
+      if (Sim.tech(S, 'hydro')) h += `<div class="gi"><div class="row2"><span><span class="c-amber">水耕架</span>　${S.racks || 0}/${Sim.RACK_MAX}</span></div><span class="dim">每个每天 1 份青菜，每两个每天 1 化学品${Sim.powered(S) ? '（发电机开着，不用）' : ''}。在据点“打造”里做。</span></div>`;
+    }
     if (v) h += `<div class="acts"><button class="btn act" data-study="1" ${Sim.canDo(S, v, 'study') && v.task.k !== 'study' ? '' : 'disabled'}><span>${v.task.k === 'study' ? `${v.name}正在研究` : `派${v.name}去研究`}</span><span class="dim">每天 +${Sim.studyPts(v)}</span></button></div>`;
     for (const br of Sim.BRANCHES) {
       h += `<div class="gh">${br}</div>`;
@@ -1326,7 +1332,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
       <p class="dim">停电第三天，你被推举为这栋老公寓的楼长。电台说救援一个月内会到，前提是你们撑得到那时候。</p>
       <ol class="scroll" style="max-height:330px">
         <li>在左边选一个住户，再点地图上的街区，右边会列出能做的事：搜刮、清理丧尸、收复、拆除、驻守、加固。</li>
-        <li>研究（“研究”分页）：派人在据点研究，攒研究点学会科技，夜里照样守据点。科技分农耕、营造、医护三支，有的要先收复某栋楼，有的研究完要用掉一样关键物品（几样里任选一样，地块面板会写哪里翻得到）。翻到书、来了懂行的人（护理师、装潢师傅、菜贩……）也会直接给进度，运气好翻到整本手册就直接学会。</li>
+        <li>研究（“研究”分页）：派人在据点研究，攒研究点学会科技，夜里照样守据点。科技分农耕、营造、医护、武备、侦察五支，有的要先收复某栋楼，有的研究完要用掉一样关键物品（几样里任选一样，地块面板会写哪里翻得到）。翻到书、来了懂行的人（护理师、装潢师傅、菜贩、退休警察、外送员……）也会直接给进度，运气好翻到整本手册就直接学会。</li>
         <li>开新局时可以选街区大小：小街区 8×8，节奏快；大街区 12×12，东西多、出路多、巢也多，一局更长。大街区一次只看得到一部分，按住地图拖动，或者点右下角的小地图移过去。</li>
         <li>夜里尸群会从每块和未收复街区接壤的地盘进攻，边界越长来得越多，地图边缘不会来丧尸。底栏和“今晚”分页会提前标出守不住的地方，地图上会闪红。</li>
         <li>边界街区守不住就会丢，和据点断开的地块也会一起丢。据点守不住会撞坏铁门，铁门撞开就输了。</li>

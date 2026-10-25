@@ -1,5 +1,8 @@
 // v0.2 平衡检查：脚本策略按地块分配守军
 const Sim = require('../src/sim.js');
+// 会规划的研究顺序：先挑立刻见效的（收成、伤员、咬伤、加固），再往深处走；没列到的排在最后
+const PLAN_ORDER = ['compost', 'stretcher', 'herb', 'clean', 'carpentry', 'diet', 'breed', 'clouds', 'armor', 'gate', 'irrigate', 'survey', 'dismantle', 'hothouse', 'tactics', 'smelt', 'cure', 'cellar', 'bunker', 'pickle', 'radioset', 'shock'];
+for (const k of Object.keys(Sim.TECHS)) if (!PLAN_ORDER.includes(k)) PLAN_ORDER.push(k);
 const { TYPES } = Sim;
 
 // 装备：急救包先救被咬的人，再给最能打的伤员（留一个备着防咬伤）；仓库里的东西按用处发给最合适的人
@@ -104,11 +107,11 @@ function policy(s, opt) {
   const fire = v => { const G = v.gear && Sim.GEAR[v.gear]; if (!G || !G.shot || ammoLeft[G.shot] < G.per) return 0; ammoLeft[G.shot] -= G.per; return G.atk; };
   for (const f of fronts) {
     let need = f.need;
-    const room = () => f.base ? s.fort < Sim.FORT_MAX : Sim.tile(s, f.x, f.y).bar < Sim.barMax(s);
+    const room = () => f.base ? s.fort < Sim.fortMax(s) : Sim.tile(s, f.x, f.y).bar < Sim.barMax(s);
     // 守这块地的人顺手在空着的边上造铁丝网或木栅（造完当晚就留在那里守，工事是永久的）
     const edgeFree = () => Sim.outEdges(s, f.x, f.y).filter(d => !Sim.fortAt(s, f.x, f.y, d) && !built.has(`${f.x},${f.y},${d}`));
     // 会规划的：给据点焊铁窗和寒流取暖留够料，剩下的都拿去造；边都造满了就把木栅换成铁丝网
-    const keep = { iron: s.fort < Sim.FORT_MAX ? 2 : 0, mat: s.fort < Sim.FORT_MAX ? 2 : 0 };
+    const keep = { iron: s.fort < Sim.fortMax(s) ? 2 : 0, mat: s.fort < Sim.fortMax(s) ? 2 : 0 };
     const pickWork = () => !opt.plan ? (res.iron >= 5 ? 'wire' : res.mat >= 7 ? 'palisade' : null)
       : res.iron - 3 >= keep.iron ? 'wire' : res.mat - 3 >= keep.mat + 2 ? 'palisade' : null;
     const upgrade = () => opt.plan && res.iron - 3 >= keep.iron ? Sim.outEdges(s, f.x, f.y).filter(d => { const w = Sim.fortAt(s, f.x, f.y, d); return w && w.k === 'palisade' && !built.has(`${f.x},${f.y},${d}`); }) : [];
@@ -206,7 +209,7 @@ function policy(s, opt) {
   }
   // 研究：留守据点、没在打造的人白天顺手研究（夜里照样守）。会规划的先挑省事、见效快的，先打巢按表上的顺序
   if (!opt.noTech) {
-    const ORDER = opt.plan ? ['compost', 'stretcher', 'herb', 'clean', 'carpentry', 'breed', 'gate', 'hothouse', 'smelt', 'cure', 'pickle', 'shock'] : Object.keys(Sim.TECHS);
+    const ORDER = opt.plan ? PLAN_ORDER : Object.keys(Sim.TECHS);
     const ready2 = k => Sim.techOpen(s, k) && ((s.tech.prog[k] || 0) < Sim.TECHS[k].pts || Sim.haveNeed(s, k));
     // 会规划的先挑手里有要用的物品（或者不用物品）的，免得进度攒满了卡着
     const usable = k => !opt.plan || !Sim.TECHS[k].need || Sim.haveNeed(s, k);
@@ -230,7 +233,7 @@ function policy(s, opt) {
   }
   for (const v of free) {
     // 加固：缺口最大的边界
-    const worst = fronts.filter(f => f.base ? s.fort < Sim.FORT_MAX : Sim.tile(s, f.x, f.y).bar < Sim.barMax(s))
+    const worst = fronts.filter(f => f.base ? s.fort < Sim.fortMax(s) : Sim.tile(s, f.x, f.y).bar < Sim.barMax(s))
       .sort((a, b) => deficit[`${b.x},${b.y}`] - deficit[`${a.x},${a.y}`])[0];
     if (worst && canF(worst.base) && fortified < (opt.fortifiers ?? 1) && (deficit[`${worst.x},${worst.y}`] > -2 || s.wall < s.wallMax - 3)) {
       tasks[v.id] = worst.base ? { k: 'fortify' } : { k: 'fortify', x: worst.x, y: worst.y }; fortified++; payF(worst.base); continue;
