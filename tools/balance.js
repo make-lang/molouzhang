@@ -221,6 +221,16 @@ function policy(s, opt) {
       free.splice(free.indexOf(v), 1); tasks[v.id] = { k: 'study' };
     }
   }
+  // 人心：有人低落就让一个留守的人陪他谈心（会规划）；大家心情差、粮食宽裕就办一桌（会规划看粮食预报，先打巢看手上的存粮）
+  if (!opt.noMood) {
+    const low = s.surv.filter(v => Sim.moodLv(s, v) <= 1);
+    if (opt.plan && low.length) {
+      const h = s.surv.find(v => tasks[v.id] && ['defend', 'study'].includes(tasks[v.id].k) && tasks[v.id].x == null && !low.includes(v)) || s.surv.find(v => tasks[v.id] && tasks[v.id].k === 'defend' && tasks[v.id].x == null);
+      if (h) tasks[h.id] = { k: 'talk' };
+    }
+    const n = Sim.partyCost(s);
+    if (Sim.canParty(s) && Sim.avgMood(s) < 45 && (opt.plan ? s.food >= 2 * n && Sim.foodAhead(s).short == null : s.food >= 5 * n)) s = Sim.setParty(s, true);
+  }
   // 会规划的：自家的工厂有原料就派一个人驻场，快坏了就修（不饿的时候）
   if (opt.plan && !opt.noFactory && !hungry) for (const t of Sim.owned(s).filter(t => Sim.WORKS[t.t] && !t.gutted)) {
     const i = s.tiles.indexOf(t), x = i % W, y = Math.floor(i / W), Wk = Sim.WORKS[t.t];
@@ -314,6 +324,7 @@ if (require.main === module) {
     ['先打巢', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', detail: true }],
     ['会规划', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', plan: true }],
     ['不造工事', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', plan: true, noWorks: true }],
+    ['不管人心', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', plan: true, noMood: true }],
     ['不研究', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', plan: true, noTech: true }],
     ['先打巢不研究', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', noTech: true }],
     ['不开工厂', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', plan: true, noFactory: true }],

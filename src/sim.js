@@ -270,6 +270,12 @@ const Sim = (() => {
     }
   }
   function addProg(s, k, n) { if (!tech(s, k)) s.tech.prog[k] = Math.min(TECHS[k].pts, (s.tech.prog[k] || 0) + n); }
+  // 今晚聚餐（再点一次取消）
+  const canParty = s => !s.over && s.surv.length > 1 && (s.lastParty == null || s.day - s.lastParty >= PARTY_GAP);
+  function setParty(s0, on) {
+    if (on && !canParty(s0)) return s0;
+    const s = clone(s0); s.party = on ? s.day : null; return s;
+  }
   // 开关发电机
   function setGen(s0, on) {
     if (!tech(s0, 'generator')) return s0;
@@ -529,7 +535,12 @@ const Sim = (() => {
     razed:       '亲手烧了一个尸巢',
     feast:       '大家好好吃了一顿',
     claimed:     '收复了{at}',
+    rested:      '好好歇了一天',
+    talked:      '跟{who}聊了很久',
+    reconciled:  '跟{who}把话说开了',
   };
+  const PARTY_GAP = 5;   // 两次聚餐至少隔几天
+  const partyCost = s => s.surv.length;   // 聚餐多吃一顿：每人 1 份
   const memNow = (s, m) => m.w > 0 ? Math.max(0, m.w - m.f * (s.day - m.d)) : Math.min(0, m.w + m.f * (s.day - m.d));
   const memTxt = m => MEMS[m.k].replace('{who}', m.who || '').replace('{at}', m.at || '');
   // 记下一件事。同一类、同一个人的事只记最近一次；记满了挤掉分量最轻的
@@ -559,6 +570,8 @@ const Sim = (() => {
     else if (v.inj > 0) out.push(['身上有伤', -4]);
     if (s.surv.some(u => u.id !== v.id && friendOf(s, u.id, v.id))) out.push(['有旧识在身边', 4]);
     if (has(s, 'ration')) out.push(['配给吃不饱', -5]);
+    if (owned(s).some(t => t.t === 'park' && !t.gutted)) out.push(['能去公园走走', 3]);
+    if (owned(s).some(t => t.t === 'temple' && !t.gutted)) out.push(['宫庙能拜拜', 3]);
     return out;
   }
   const mood = (s, v) => clamp(Math.round(50 + (v.mem || []).reduce((a, m) => a + memNow(s, m), 0) + moodNow(s, v).reduce((a, x) => a + x[1], 0)), 0, 100);
@@ -733,7 +746,7 @@ const Sim = (() => {
 
   // 守军所在地块：留守（不带坐标）= 据点。在据点打造装备的人白天干活，夜里也守着据点
   // 造工事的人造完就留在那块地守夜，预报里也要算上
-  const guardAt = (v, x, y, s) => (v.task.k === 'defend' && (v.task.x == null ? isBase(tile(s, x, y)) : v.task.x === x && v.task.y === y)) || ((v.task.k === 'craft' || v.task.k === 'study') && isBase(tile(s, x, y))) || (v.task.k === 'hot' && v.task.x === x && v.task.y === y) || (v.task.k === 'build' && v.task.x === x && v.task.y === y);
+  const guardAt = (v, x, y, s) => (v.task.k === 'defend' && (v.task.x == null ? isBase(tile(s, x, y)) : v.task.x === x && v.task.y === y)) || (['craft', 'study', 'talk', 'rest'].includes(v.task.k) && isBase(tile(s, x, y))) || (v.task.k === 'hot' && v.task.x === x && v.task.y === y) || (v.task.k === 'build' && v.task.x === x && v.task.y === y);
 
   function groupKey(v) {
     const t = v.task;
@@ -1191,10 +1204,14 @@ const Sim = (() => {
   const trailReach = (s, x, y) => tech(s, 'trail') && !storm(s) && !flooded(s) && near2(s, x, y);   // 路标：认得路，离地盘两格以内都能走过去
   const canGo = (s, v, x, y) => reachable(s, x, y) || bikeReach(s, v, x, y) || trailReach(s, x, y);
 
+  // 谈心找心情最差的人（今天还没人陪的），一样差就找有过节的
+  const talkTarget = (s, v, taken) => s.surv.filter(u => u.id !== v.id && !taken.includes(u.id)).sort((a, b) => mood(s, a) - mood(s, b) || (related(s, b.id, v.id) ? 1 : 0) - (related(s, a.id, v.id) ? 1 : 0))[0] || null;
+
   function canDo(s, v, k, x, y, item) {
     if (s.over || !ready(v)) return false;
     if ((k === 'defend' || k === 'fortify') && x == null) return true;
-    if (k === 'study') return x == null;
+    if (k === 'study' || k === 'rest') return x == null;
+    if (k === 'talk') return x == null && s.surv.length > 1;
     if (k === 'craft') return x == null && !!GEAR[item] && !!GEAR[item].cost && (!GEAR[item].tech || tech(s, GEAR[item].tech)) && (item !== 'rack' || (s.racks || 0) < RACK_MAX);
     const t = tile(s, x, y);
     if (!t) return false;
@@ -1222,7 +1239,7 @@ const Sim = (() => {
 
   function normTask(s, task) {
     if (task.k === 'craft') return { k: 'craft', item: task.item };
-    if (task.k === 'study') return { k: 'study' };
+    if (task.k === 'study' || task.k === 'talk' || task.k === 'rest') return { k: task.k };
     if (task.k === 'build') return { k: 'build', x: task.x, y: task.y, item: task.item };
     if (task.x != null && isBase(tile(s, task.x, task.y)) && (task.k === 'defend' || task.k === 'fortify')) return { k: task.k };
     return task.x != null ? { k: task.k, x: task.x, y: task.y } : { k: task.k };
@@ -1269,6 +1286,8 @@ const Sim = (() => {
     }
     if (k === 'craft') return { gain: `打造${GEAR[x].name}，耗 ${costTxt(craftCost(v, x, s))}；夜里照样守据点`, risk: 0 };
     if (k === 'study') { const c = s.tech.cur; return { gain: c ? `研究「${TECHS[c].name}」每天 +${studyPts(v)}${s.tiles.some(t => t.owned && t.t === 'school') ? '（有国小再多一半）' : ''}${powered(s) ? '（发电机开着，再多一半）' : ''}，进度 ${s.tech.prog[c] || 0}/${TECHS[c].pts}；夜里照样守据点` : '还没定研究哪一项，先去“研究”分页选', risk: 0 }; }
+    if (k === 'talk') { const u = talkTarget(s, v, []); return { gain: u ? `陪${u.name}聊一天（现在${MOOD_LV[moodLv(s, u)].name}），两个人心里都好受些${tr(v, 'charmer') ? '；人缘好，聊得开' : ''}${related(s, u.id, v.id) && !friendOf(s, u.id, v.id) ? '；两人有过节，说不定能说开' : ''}；夜里照样守据点` : '没有人可以聊', risk: 0 }; }
+    if (k === 'rest') return { gain: '歇一天，人心回升；夜里照样守据点', risk: 0 };
     if (k === 'hot') return { gain: '搭温室，耗 4 木料；冬天照样长、不怕霜，每天烧 1 木料', risk: 0 };
     if (k === 'grove') return { gain: `整地进度 +${Math.ceil((v.build + (tr(v, 'handy') ? 1 : 0)) * wxWork(s))}，还差 ${TILL - (t.till || 0)}；种下后长 ${GROVE} 天（冬天不长）才成林，之后每天 +1 木料`, risk: 0 };
     if (k === 'work') { const W_ = WORKS[t.t]; return { gain: `${W_.name}：${Object.keys(W_.use).length ? `用 ${costTxt(W_.use)} ` : ''}出 ${W_.n(v)} ${RES[W_.out].name}；工厂耐久 ${cond(t)}/${COND_MAX}，开一天掉 1；机器响会引来丧尸`, risk: 0 }; }
@@ -1409,6 +1428,23 @@ const Sim = (() => {
       }
       for (const v of studying) v.task = { k: 'study' };
     }
+
+    // 歇一天、谈心：人在据点，夜里照样守据点
+    for (const v of team.filter(v => v.task.k === 'rest')) { remember(s, v, 'rested', 8, 1); L(`${v.name}睡到中午，在顶楼晒了一下午太阳。`); }
+    { const taken = [];
+      for (const v of team.filter(v => v.task.k === 'talk')) {
+        const u = talkTarget(s, v, taken.concat(team.filter(w => w.task.k === 'talk').map(w => w.id)));
+        if (!u) continue;
+        taken.push(u.id);
+        const m = worstMem(s, u), feud = s.rel.findIndex(r => r[2] === 'feud' && ((r[0] === u.id && r[1] === v.id) || (r[0] === v.id && r[1] === u.id)));
+        remember(s, u, 'talked', tr(v, 'charmer') ? 15 : 10, 0.5, { who: v.name }); remember(s, v, 'talked', 4, 0.5, { who: u.name });
+        if (feud >= 0 && rand(s) < (tr(v, 'charmer') ? 0.6 : 0.35)) {
+          s.rel.splice(feud, 1); remember(s, u, 'reconciled', 8, 0.2, { who: v.name }); remember(s, v, 'reconciled', 8, 0.2, { who: u.name });
+          L(`${v.name}和${u.name}关起门谈了一下午。出来的时候两个人都没说什么，但之前的过节算是过去了。`, 'good');
+        } else L(m && m.who ? `${v.name}陪${u.name}坐了一下午，聊起${m.who}的事。${u.name}哭了一场，心里好受一些。`
+          : m ? `${v.name}陪${u.name}坐了一下午。${u.name}说了很多，${memTxt(m)}的事，说出来就轻松了一点。`
+          : `${v.name}和${u.name}在顶楼聊了一下午，从以前住哪条街聊到想吃什么。`, 'good');
+      } }
 
     // 搭温室：一个人一天，搭完留在那块地守夜
     for (const v of team.filter(v => v.task.k === 'hot')) {
@@ -1610,6 +1646,24 @@ const Sim = (() => {
     if (has(s, 'ration') && s.surv.length && rand(s) < 0.1) {
       const v = pick(s, s.surv); v.sulk = Math.max(v.sulk, 2);
       L(`${v.name}受不了配给，跟你吵了一架，明天不出门。`, 'bad');
+    }
+    // 聚餐：吃完饭再多摆一桌，每样先拿一份凑种类
+    if (s.party === s.day) {
+      s.party = null;
+      const n = partyCost(s);
+      if (s.food < n) L(`存粮不够多摆一桌，聚餐取消了。`, 'bad');
+      else {
+        const got = {};
+        for (const k of [...new Set(s.pantry.map(b => b.k))].slice(0, n)) { const b = s.pantry.find(b => b.k === k); b.n--; got[k] = 1; }
+        s.pantry = s.pantry.filter(b => b.n > 0);
+        const rest = draw(s, n - Object.keys(got).length);
+        for (const k of Object.keys(rest)) got[k] = (got[k] || 0) + rest[k];
+        s.food -= n;
+        const kinds = new Set(Object.keys(got).concat(Object.keys(ate))).size, soon = s.lastParty != null && s.day - s.lastParty < 2 * PARTY_GAP;
+        const w = Math.round((kinds >= 3 ? 12 : 8) * (soon ? 0.5 : 1));
+        everyone(s, 'feast', w, 0.4); s.lastParty = s.day; s.stats.party = (s.stats.party || 0) + 1;
+        L(`晚上在顶楼多摆了一桌，${Object.keys(got).map(k => FOODS[k].name).join('、')}，一共 ${n} 份。${kinds >= 3 ? '难得吃得这么杂，' : ''}${soon ? '才吃过没多久，大家没那么起劲。' : '有人翻出一把吉他，唱到很晚。'}`, 'good');
+      }
     }
     if (s.food < 0) {
       s.food = 0;
@@ -2488,7 +2542,7 @@ const Sim = (() => {
   }
 
   return {
-    VERSION, MAPS, mapOf, mood, moodLv, moodNow, memNow, memTxt, MOOD_LV, avgMood, TECHS, ITEMS, BRANCHES, tech, techOpen, haveNeed, setResearch, setGen, powered, fortMax, RACK_MAX, studyPts, plotK, SEASON_LEN, FARM_FOOD, TILL, farmYield, FOODS, CROPS, cropK, plots, ripe, eatSeeds, setCrop, nextSeason, SEED_FOOD, SEED_P, RES, COST, canPay, costTxt, GROVE, LOG, grown, FORTS, DIRS, outEdges, fortAt, shooters, WORKS, COND_MAX, FIX, cond, WX, FLOOD_TXT, KNEE_WX, trustWx, SEASONS, SEASON_ORDER, seasonOf, forecast, selfFed, landing, INF_DAYS, NEST_R, NEST_HORDE, HORDE_BASE, nestHp, nestLv, nestZ, nestHint, FORT_MAX, BAR_MAX, TYPES, TRAITS, RULES, CITIES, ORIGINS, GEAR, equip, useMedkit, bikeReach, nestReach, canGo, craftCost, barMax, foodUse, has, surgeEvery, surgeIn,
+    VERSION, MAPS, mapOf, setParty, canParty, partyCost, PARTY_GAP, mood, moodLv, moodNow, memNow, memTxt, MOOD_LV, avgMood, TECHS, ITEMS, BRANCHES, tech, techOpen, haveNeed, setResearch, setGen, powered, fortMax, RACK_MAX, studyPts, plotK, SEASON_LEN, FARM_FOOD, TILL, farmYield, FOODS, CROPS, cropK, plots, ripe, eatSeeds, setCrop, nextSeason, SEED_FOOD, SEED_P, RES, COST, canPay, costTxt, GROVE, LOG, grown, FORTS, DIRS, outEdges, fortAt, shooters, WORKS, COND_MAX, FIX, cond, WX, FLOOD_TXT, KNEE_WX, trustWx, SEASONS, SEASON_ORDER, seasonOf, forecast, selfFed, landing, INF_DAYS, NEST_R, NEST_HORDE, HORDE_BASE, nestHp, nestLv, nestZ, nestHint, FORT_MAX, BAR_MAX, TYPES, TRAITS, RULES, CITIES, ORIGINS, GEAR, equip, useMedkit, bikeReach, nestReach, canGo, craftCost, barMax, foodUse, has, surgeEvery, surgeIn,
     newGame, endDay, setTask, canDo, preview, resolveEvent, eventView,
     nightPlan, tileDefense, horde, beds, income, foodAhead, owned, tile, reachable, frontier, byId, ready, score, eff, tname,
     arrivalChance, serialize, deserialize, SKILL,

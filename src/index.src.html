@@ -379,7 +379,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
   // 静态的街景（路面、楼、阴影、亮灯的窗）按地块状态画一次缓存起来；丧尸、灯光、标记这些会动的每帧重画
   const TS = 48;
   const cv = $('map'), ctx = cv.getContext('2d');
-  const TASKC = { study: '#9a8ad8', hot: '#7fb257', craft: '#f0b04a', defend: '#74a6dc', fortify: '#f0b04a', scav: '#ebe4cf', clear: '#e2654b', claim: '#f0b04a', strip: '#b07a3a', rescue: '#ea92b2', farm: '#7fb257', grove: '#5a8a3a', log: '#b07a3a', build: '#f0b04a', work: '#c88a3e', fix: '#8a93a8' };
+  const TASKC = { talk: '#ea92b2', rest: '#7fb257', study: '#9a8ad8', hot: '#7fb257', craft: '#f0b04a', defend: '#74a6dc', fortify: '#f0b04a', scav: '#ebe4cf', clear: '#e2654b', claim: '#f0b04a', strip: '#b07a3a', rescue: '#ea92b2', farm: '#7fb257', grove: '#5a8a3a', log: '#b07a3a', build: '#f0b04a', work: '#c88a3e', fix: '#8a93a8' };
   const isBaseT = t => t.t === 'base';
   function hash(x, y, k) { let h = (x * 374761393 + y * 668265263 + k * 2147483647 + S.seed) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
   const px = (x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(x, y, w, h); };
@@ -882,7 +882,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
   const pct = p => Math.round(p * 100) + '%';
   const riskCls = p => p >= 0.3 ? 'c-red' : p >= 0.12 ? 'c-amber' : 'c-good';
   const where = (x, y) => Sim.tname(Sim.tile(S, x, y));
-  const LABEL = { study: '研究', hot: '搭温室', work: '开工', fix: '维修', build: '造工事', grove: '种树', log: '伐木', farm: '开垦', craft: '打造', scav: '搜刮', clear: '清理', claim: '收复', strip: '拆除', defend: '驻守', fortify: '加固', rescue: '救人' };
+  const LABEL = { talk: '谈心', rest: '歇一天', study: '研究', hot: '搭温室', work: '开工', fix: '维修', build: '造工事', grove: '种树', log: '伐木', farm: '开垦', craft: '打造', scav: '搜刮', clear: '清理', claim: '收复', strip: '拆除', defend: '驻守', fortify: '加固', rescue: '救人' };
   const daysLeft = w => w.until - S.day;
   function taskText(v) {
     if (v.inf === -1) return { t: '被咬 · 撑不过今天了', hurt: true };
@@ -894,6 +894,8 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     if (k === 'defend') return { t: at ? `驻守 ${where(v.task.x, v.task.y)}` : '留守据点' };
     if (k === 'fortify') return { t: at ? `堆路障 ${where(v.task.x, v.task.y)}` : '加固据点' };
     if (k === 'craft') return { t: `在据点打造${Sim.GEAR[v.task.item].name}` };
+    if (k === 'talk') return { t: '在据点陪人谈心' };
+    if (k === 'rest') return { t: '在据点歇一天' };
     if (k === 'study') return { t: S.tech.cur ? `研究「${Sim.TECHS[S.tech.cur].name}」` : '研究（还没定研究什么）' };
     if (k === 'build') return { t: `造${Sim.FORTS[v.task.item.split(':')[0]].name} ${where(v.task.x, v.task.y)}` };
     return { t: `${LABEL[k]} ${where(v.task.x, v.task.y)}` };
@@ -1015,6 +1017,8 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     work: ['驻场开工', '机器开一天掉 1 点耐久，会吵'],
     fix: ['维修机器', `耗 ${Sim.costTxt(Sim.FIX)}`],
     study: ['研究', '在据点研究科技，夜里照样守据点'],
+    talk: ['谈心', '陪心情最差的人聊一天，夜里照样守据点'],
+    rest: ['歇一天', '放自己一天假，人心回升，夜里照样守据点'],
     hot: ['搭温室', '4 木料，冬天照样长'],
   };
   const STATE_TXT = { safe: '守得住', risk: '看运气', fail: '守不住' };
@@ -1032,7 +1036,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     if (k === 'grove') return t.owned && !base && !t.farm && !t.grove && (t.t === 'ruin' || t.gutted);
     if (k === 'log') return t.owned && Sim.grown(t);
     if (k === 'work' || k === 'fix') return t.owned && !!Sim.WORKS[t.t] && !t.gutted;
-    if (k === 'study') return base;
+    if (k === 'study' || k === 'talk' || k === 'rest') return base;
     if (k === 'hot') return t.owned && !t.hot && Sim.tech(S, 'hothouse') && Sim.plots(S).includes(t);
     if (k === 'rescue') return (S.sos && S.sos.x === x && S.sos.y === y) || S.surv.some(u => u.want && u.want.k === 'rescue' && u.want.x === x && u.want.y === y);
   }
@@ -1045,8 +1049,9 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     const body = $('sidebody');
     body.innerHTML = tab === 'tile' ? tileHtml() : tab === 'night' ? nightHtml() : tab === 'gear' ? gearHtml() : tab === 'tech' ? techHtml() : logHtml();
     body.scrollTop = 0;
-    body.querySelectorAll('[data-task]').forEach(b => b.onclick = () => commit(Sim.setTask(S, selSurv, b.dataset.task === 'study' ? { k: 'study' } : { k: b.dataset.task, x: selTile.x, y: selTile.y })));
+    body.querySelectorAll('[data-task]').forEach(b => b.onclick = () => commit(Sim.setTask(S, selSurv, ['study', 'talk', 'rest'].includes(b.dataset.task) ? { k: b.dataset.task } : { k: b.dataset.task, x: selTile.x, y: selTile.y })));
     body.querySelectorAll('[data-research]').forEach(b => b.onclick = () => commit(Sim.setResearch(S, b.dataset.research)));
+    body.querySelectorAll('[data-party]').forEach(b => b.onclick = () => commit(Sim.setParty(S, b.dataset.party === '1')));
     body.querySelectorAll('[data-gen]').forEach(b => b.onclick = () => commit(Sim.setGen(S, b.dataset.gen === '1')));
     body.querySelectorAll('[data-study]').forEach(b => b.onclick = () => commit(Sim.setTask(S, selSurv, { k: 'study' })));
     body.querySelectorAll('[data-recall]').forEach(b => b.onclick = () => commit(Sim.setTask(S, +b.dataset.recall, { k: 'defend' })));
@@ -1114,6 +1119,10 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     }
     const v = selSurv != null ? Sim.byId(S, selSurv) : null;
     if (t.owned && Sim.WORKS[t.t] && !t.gutted) { const Wk = Sim.WORKS[t.t], c = Sim.cond(t); h += `<div class="box ${c > 0 ? 'safe' : 'fail'} dim">工厂：${Wk.name}，${Object.keys(Wk.use).length ? `每人用 ${Sim.costTxt(Wk.use)}、` : ''}出 ${Sim.RES[Wk.out].name}。机器耐久 <span class="${c > 2 ? 'c-good' : 'c-red'}">${c}/${Sim.COND_MAX}</span>，开工一天掉 1，掉到 0 就停。开机的那天，旁边的街区可能多出丧尸。</div>`; }
+    if (base) {   // 聚餐
+      const on = S.party === S.day, n = Sim.partyCost(S), wait = S.lastParty != null ? Sim.PARTY_GAP - (S.day - S.lastParty) : 0;
+      h += `<div class="box ${on ? 'safe' : ''}"><div class="row2"><span>${on ? '<span class="c-good">今晚聚餐</span>' : '聚餐'}</span>${on ? '<button class="btn" data-party="0">取消</button>' : `<button class="btn" data-party="1" ${Sim.canParty(S) ? '' : 'disabled'}>今晚办一桌</button>`}</div><span class="dim">吃完饭再多摆一桌，多吃 ${n} 份（现在有 ${S.food}），大家人心都往上走；桌上越杂越好，隔太近效果减半。${wait > 0 ? `还要等 ${wait} 天才能再办。` : ''}</span></div>`;
+    }
     if (t.owned) h += edgeHtml(t, x, y, v) + cropHtml(t, x, y);
     if (t.grove) h += `<div class="box safe dim">树林：${Sim.grown(t) ? `长成了，每天修枝 +1 木料；也能派人整片砍掉换 ${Sim.LOG} 木料。` : `还要长 ${Math.ceil(Sim.GROVE - t.grove.g)} 天（冬天不长，梅雨长得快）。`}</div>`;
     const byBike = !reach && v && t.seen && Sim.bikeReach(S, v, x, y);
@@ -1122,7 +1131,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     if (!t.seen || (!reach && !byBike && !byRaid)) return h + `<div class="dim">${S.wxNow === 'typhoon' ? '台风天只能去相邻的街区，骑车、远征端巢都不行。' : `离地盘太远。先收复相邻的街区${S.surv.some(u => u.gear === 'bike') ? '，或者让骑脚踏车的人去' : ''}。`}</div>`;
     if (t.camp) return h;
     if (byBike) h += `<div class="dim">${v.name}骑脚踏车能到这里。</div>`;
-    const keys = (t.owned ? ['rescue', 'defend', 'fortify', 'study', 'work', 'fix', 'hot', 'log', 'grove', 'farm', 'scav', 'strip'] : ['rescue', 'scav', 'clear', 'claim', 'strip'])
+    const keys = (t.owned ? ['rescue', 'defend', 'fortify', 'study', 'talk', 'rest', 'work', 'fix', 'hot', 'log', 'grove', 'farm', 'scav', 'strip'] : ['rescue', 'scav', 'clear', 'claim', 'strip'])
       .filter(k => relevant(t, x, y, k) && (reach || byBike || k === 'clear'));
     if (!keys.length) return h + `<div class="dim">这里没什么可做的。</div>`;
     if (!v) h += `<div class="c-amber">在左边选一个住户来派工。</div>`;
@@ -1132,7 +1141,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
       if (k === 'defend' && base) name = '留守';
       if (k === 'clear' && (nest || dorm)) { name = '端巢'; note = '几个人同一天一起上'; }
       if (k === 'strip') note = S.surv.some(u => u.want && u.want.k === 'protect' && u.want.x === x && u.want.y === y) ? '有人不准拆，拆了会结仇' : (t.owned ? '换材料，加成立刻没了' : '一次拿走大量材料');
-      const ok = v && Sim.canDo(S, v, k, x, y);
+      const home = ['study', 'talk', 'rest'].includes(k), ok = v && (home ? Sim.canDo(S, v, k) : Sim.canDo(S, v, k, x, y));
       const already = v && v.task.k === k && onTile(v, x, y);
       let sub = note, risk = '';
       if (ok) {
@@ -1348,7 +1357,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
       <p class="dim">停电第三天，你被推举为这栋老公寓的楼长。电台说救援一个月内会到，前提是你们撑得到那时候。</p>
       <ol class="scroll" style="max-height:330px">
         <li>在左边选一个住户，再点地图上的街区，右边会列出能做的事：搜刮、清理丧尸、收复、拆除、驻守、加固。</li>
-        <li>人心：每个人记着对自己有分量的事（旧识被送走、心愿了了、一起撑过尸潮……），再加上吃得好不好、睡不睡得下。名字发绿是振作，白天干活多出一把力；发黄是低落，干活、守夜都差一截，也不肯去端巢；发红是崩溃，夜里可能一走了之。选中住户能看到他心里记着什么。坏事大多会慢慢淡掉。</li>
+        <li>人心：每个人记着对自己有分量的事（旧识被送走、心愿了了、一起撑过尸潮……），再加上吃得好不好、睡不睡得下。名字发绿是振作，白天干活多出一把力；发黄是低落，干活、守夜都差一截，也不肯去端巢；发红是崩溃，夜里可能一走了之。选中住户能看到他心里记着什么。坏事大多会慢慢淡掉。拉人心的办法：在据点办聚餐（花粮食，桌上越杂越好）、派人谈心（陪心情最差的人聊一天，有过节的可能说开）、让人歇一天；收复公园、宫庙，大家平时也会好过一点。兑现牵挂、别把被咬的人送走，也都算数。</li>
         <li>研究（“研究”分页）：派人在据点研究，攒研究点学会科技，夜里照样守据点。科技分农耕、营造、医护、武备、侦察五支，有的要先收复某栋楼，有的研究完要用掉一样关键物品（几样里任选一样，地块面板会写哪里翻得到）。翻到书、来了懂行的人（护理师、装潢师傅、菜贩、退休警察、外送员……）也会直接给进度，运气好翻到整本手册就直接学会。</li>
         <li>开新局时可以选街区大小：小街区 8×8，节奏快；大街区 12×12，东西多、出路多、巢也多，一局更长。大街区一次只看得到一部分，按住地图拖动，或者点右下角的小地图移过去。</li>
         <li>夜里尸群会从每块和未收复街区接壤的地盘进攻，边界越长来得越多，地图边缘不会来丧尸。底栏和“今晚”分页会提前标出守不住的地方，地图上会闪红。</li>

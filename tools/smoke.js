@@ -24,10 +24,13 @@ for (let i = 0; i < 400; i++) {
     }
     // 科技：没在研究就挑第一项能研究的
     if (!s.tech.cur) { const k = Object.keys(Sim.TECHS).find(k => Sim.techOpen(s, k)); if (k) s = Sim.setResearch(s, k); }
-    if (s.day % 10 === 5) s = Sim.setGen(s, !s.gen);   // 发电机时开时关
+    if (s.day % 10 === 5) s = Sim.setGen(s, !s.gen);
+    if (s.day % 8 === 3) s = Sim.setParty(s, true);   // 发电机时开时关
     // 随机给几个人派活，覆盖各种任务分支
     for (const v of s.surv) {
       if ((v.id + s.day) % 7 === 3) { s = Sim.setTask(s, v.id, { k: 'study' }); continue; }
+      if ((v.id + s.day) % 13 === 2) { s = Sim.setTask(s, v.id, { k: 'talk' }); continue; }
+      if ((v.id + s.day) % 17 === 4) { s = Sim.setTask(s, v.id, { k: 'rest' }); continue; }
       { const pl = Sim.plots(s).find(t => !t.hot), j = pl ? s.tiles.indexOf(pl) : -1; if (pl && (v.id + s.day) % 6 === 1 && Sim.canDo(s, v, 'hot', j % s.W, Math.floor(j / s.W))) { s = Sim.setTask(s, v.id, { k: 'hot', x: j % s.W, y: Math.floor(j / s.W) }); continue; } }
       if ((v.id + s.day) % 9 === 0 && s.mat >= 6) { s = Sim.setTask(s, v.id, { k: 'craft', item: ['crowbar', 'axe', 'helmet', 'spear', 'bow', 'xbow', 'arrows', 'medkit', 'bullets', 'ingot', 'pickle', 'rack', 'parts', 'reload'][s.day % 14] }); continue; }
       const x = (v.id * 3 + s.day) % s.W, y = (v.id * 5 + s.day) % s.H;
@@ -57,7 +60,7 @@ for (let i = 0; i < 400; i++) {
     if (Sim.forecast(s) && Sim.forecast(s).flood) wxSeen['淹水'] = (wxSeen['淹水'] || 0) + 1;
     const n0 = s.log.length;
     s = Sim.endDay(s);
-    for (const l of s.log.slice(n0)) for (const [k, re] of [['打造', /做出一件/], ['捡到', /找到了.*放进了仓库/], ['帽碎', /安全帽碎了/], ['掉落', /掉在了/], ['骑车', /骑车/], ['砍巢', /砍了尸巢/], ['端巢', /烧了尸巢/], ['巢长大', /尸巢又大了一圈|尸巢又长大了/], ['发现巢', /发现了一个尸巢/], ['新巢', /新的尸巢/], ['被咬', /被咬了！/], ['尸变', /已经不是/], ['治咬伤', /咬伤治好了/], ['翻到药', /翻到一个急救包/], ['台风', /台风刮了一整夜/], ['取暖', /份材料取暖/], ['冻病', /冻病了/], ['发霉', /发霉/], ['猜错天', /跟早上听/], ['说中', /说中了/], ['雷劈', /雷打中|一道雷/], ['放坏', /放坏了/], ['下种', /种下了/], ['过季', /过季了/], ['吃腻', /端起碗都叹气/], ['振作', /顶楼哼歌/], ['低落', /闷闷不乐/], ['崩溃', /人像被抽空了/], ['崩溃走', /半夜收拾东西走了，铁门/], ['翻到种子', /种子。$/], ['煮种子', /种子煮了/], ['造工事', /造好了/], ['陷阱', /钉板陷阱绊倒/], ['放箭', /支箭，天亮/], ['种树', /种下一片树苗/], ['砍树', /把.*的树砍了/], ['做箭', /做出 \d+ 支箭/], ['改种', /改种/], ['开工', /做出 \d+ (零件|火药|化学品)/], ['修工厂', /机器修好了/], ['开枪', /发子弹。枪声/], ['压子弹', /压了一整天/], ['捡到枪', /弹匣里/], ['巢醒', /尸巢醒了/], ['约直升机', /确认了降落点/], ['直升机走', /飞走了/], ['换季', /^入.*了。/], ['开垦', /开出/], ['学会', /学会了「/], ['翻到书', /翻到一(本|整本)/], ['手册', /翻到一整本/], ['翻到物品', /研究用得上/], ['研究', /进度 \d+\//], ['差物品', /就差一样/], ['温室', /搭起了温室/], ['腌菜', /腌成了腌菜/], ['熔铁', /熔出 \d+ 份废铁/], ['懂行', /懂一点/], ['药治咬伤', /化学品配的药/]]) if (re.test(l.msg)) gearOps[k] = (gearOps[k] || 0) + 1;
+    for (const l of s.log.slice(n0)) for (const [k, re] of [['打造', /做出一件/], ['捡到', /找到了.*放进了仓库/], ['帽碎', /安全帽碎了/], ['掉落', /掉在了/], ['骑车', /骑车/], ['砍巢', /砍了尸巢/], ['端巢', /烧了尸巢/], ['巢长大', /尸巢又大了一圈|尸巢又长大了/], ['发现巢', /发现了一个尸巢/], ['新巢', /新的尸巢/], ['被咬', /被咬了！/], ['尸变', /已经不是/], ['治咬伤', /咬伤治好了/], ['翻到药', /翻到一个急救包/], ['台风', /台风刮了一整夜/], ['取暖', /份材料取暖/], ['冻病', /冻病了/], ['发霉', /发霉/], ['猜错天', /跟早上听/], ['说中', /说中了/], ['雷劈', /雷打中|一道雷/], ['放坏', /放坏了/], ['下种', /种下了/], ['过季', /过季了/], ['吃腻', /端起碗都叹气/], ['振作', /顶楼哼歌/], ['低落', /闷闷不乐/], ['崩溃', /人像被抽空了/], ['崩溃走', /半夜收拾东西走了，铁门/], ['聚餐', /多摆了一桌/], ['谈心', /坐了一下午|聊了一下午/], ['和解', /过节算是过去了/], ['歇一天', /睡到中午/], ['翻到种子', /种子。$/], ['煮种子', /种子煮了/], ['造工事', /造好了/], ['陷阱', /钉板陷阱绊倒/], ['放箭', /支箭，天亮/], ['种树', /种下一片树苗/], ['砍树', /把.*的树砍了/], ['做箭', /做出 \d+ 支箭/], ['改种', /改种/], ['开工', /做出 \d+ (零件|火药|化学品)/], ['修工厂', /机器修好了/], ['开枪', /发子弹。枪声/], ['压子弹', /压了一整天/], ['捡到枪', /弹匣里/], ['巢醒', /尸巢醒了/], ['约直升机', /确认了降落点/], ['直升机走', /飞走了/], ['换季', /^入.*了。/], ['开垦', /开出/], ['学会', /学会了「/], ['翻到书', /翻到一(本|整本)/], ['手册', /翻到一整本/], ['翻到物品', /研究用得上/], ['研究', /进度 \d+\//], ['差物品', /就差一样/], ['温室', /搭起了温室/], ['腌菜', /腌成了腌菜/], ['熔铁', /熔出 \d+ 份废铁/], ['懂行', /懂一点/], ['药治咬伤', /化学品配的药/]]) if (re.test(l.msg)) gearOps[k] = (gearOps[k] || 0) + 1;
     s = Sim.deserialize(Sim.serialize(s));
     if (s.food !== s.pantry.reduce((a, b) => a + b.n, 0)) throw new Error(`第 ${s.day} 天：存粮总数 ${s.food} 跟粮仓对不上`);
   }
@@ -168,3 +171,14 @@ console.log(`覆盖到的事件分支 ${Object.keys(seen).length} 个：${Object
   if (Sim.moodLv(ms, a2) !== 0) throw new Error('人心没掉到崩溃');
   const r = Sim.deserialize(Sim.serialize(ms)); if (Sim.mood(r, Sim.byId(r, a.id)) !== Sim.mood(ms, a2)) throw new Error('人心存档不一致');
   console.log(`人心测试通过：${Sim.memTxt(m)}，人心 ${Sim.mood(ms, a2)}`); }
+// 聚餐、谈心
+{ let ps = Sim.newGame(37, { season: 'spring' });
+  while (ps.event) ps = first(ps);
+  ps.food += 20; ps.pantry.push({ k: 'can', n: 20, exp: 0 });
+  const [a, b] = ps.surv; b.mem.push({ k: 'died', d: ps.day, w: -20, f: 0, who: '志明' });
+  ps = Sim.setParty(ps, true); ps = Sim.setTask(ps, a.id, { k: 'talk' });
+  const m0 = Sim.mood(ps, Sim.byId(ps, b.id)); ps = Sim.endDay(ps);
+  if (!(ps.stats.party > 0)) throw new Error('聚餐没办成');
+  if (!(Sim.mood(ps, Sim.byId(ps, b.id)) > m0)) throw new Error('谈心、聚餐没拉起人心');
+  if (Sim.canParty(ps)) throw new Error('聚餐没有间隔');
+  console.log(`聚餐、谈心测试通过：人心 ${m0} → ${Sim.mood(ps, Sim.byId(ps, b.id))}`); }
