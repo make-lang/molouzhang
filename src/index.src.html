@@ -110,6 +110,9 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
 #map { position: absolute; left: 0; top: 0; width: 384px; height: 384px; image-rendering: pixelated; cursor: pointer; background: #0b0d12; box-shadow: 0 0 0 2px var(--sunk), 0 0 0 4px var(--edge), 0 0 0 5px #0a0b10; }
 #mapcap { position: absolute; left: 0; top: 392px; width: 384px; height: 40px; display: flex; flex-direction: column; justify-content: center; color: var(--dim); white-space: nowrap; overflow: hidden; }
 #mapcap > span { overflow: hidden; text-overflow: ellipsis; }
+#mapcap.hasmini { padding-right: 46px; }
+#mini { position: absolute; right: 0; top: 394px; width: 36px; height: 36px; image-rendering: pixelated; cursor: pointer; box-shadow: 0 0 0 1px var(--edge-hi); }
+#map.pan { touch-action: none; }
 #tip { position: absolute; pointer-events: none; padding: 0 4px; background: var(--sunk); border: 1px solid var(--edge-hi); white-space: nowrap; z-index: 3; }
 
 /* 右侧面板 */
@@ -164,6 +167,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
 #dlg textarea { width: 100%; height: 80px; background: var(--sunk); color: var(--ink); border: 1px solid var(--edge); font: 10px/12px ui-monospace, Menlo, monospace; padding: 4px; resize: none; }
 #dlg input[type=file] { font: inherit; color: var(--dim); max-width: 190px; }
 .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.cards.two { grid-template-columns: repeat(2, 1fr); } .cards.two .card { min-height: 0; }
 .cards.four { grid-template-columns: repeat(4, 1fr); } .cards.four .card { min-height: 0; padding: 8px; gap: 4px; }
 .box.wx { display: flex; flex-direction: column; gap: 4px; border-color: #74a6dc; margin-bottom: 6px; }
 .wxl { display: flex; gap: 6px; align-items: flex-start; } .wxl img.ic { flex-shrink: 0; margin-top: 1px; }
@@ -202,6 +206,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     <canvas id="map" width="384" height="384" tabindex="0" aria-label="街区地图，方向键移动选择"></canvas>
     <div id="tip" hidden></div>
     <div id="mapcap"></div>
+    <canvas id="mini" width="36" height="36" hidden aria-label="小地图，点一下把视角移过去"></canvas>
   </section>
   <aside id="side" class="frame">
     <div id="tabs" role="tablist">
@@ -233,7 +238,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
   const $ = id => document.getElementById(id);
   const T = Sim.TYPES;
   const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  let S, PLAN, selTile = { x: 1, y: 6 }, selSurv = null, mode = null, tab = 'tile', report = null, overSeen = false, hover = null;
+  let S, PLAN, selTile = { x: 1, y: 6 }, cam = { x: 0, y: 0 }, camSel = '', selSurv = null, mode = null, tab = 'tile', report = null, overSeen = false, hover = null;
 
   // ---------- 存取 ----------
   function save() { try { localStorage.setItem(KEY, Sim.serialize(S)); } catch (e) {} }
@@ -784,37 +789,87 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     }
   }
   let tick = 1;
+  // 视角：画布一次看 8×8 格，大街区可以拖动、用方向键或点小地图移过去。cam 是左上角的像素坐标
+  const VIEW = 384;
+  function clampCam() { cam.x = Math.max(0, Math.min(S.W * TS - VIEW, Math.round(cam.x))); cam.y = Math.max(0, Math.min(S.H * TS - VIEW, Math.round(cam.y))); }
+  // 选中的格子换了、又不在视野里，就把视角挪到刚好看得见（留一格边）
+  function follow() {
+    const key = `${S.seed}|${selTile.x},${selTile.y}`;
+    if (key === camSel) return;
+    camSel = key;
+    const m = S.W > 8 ? TS : 0, x0 = selTile.x * TS, y0 = selTile.y * TS;
+    if (x0 - m < cam.x) cam.x = x0 - m; else if (x0 + TS + m > cam.x + VIEW) cam.x = x0 + TS + m - VIEW;
+    if (y0 - m < cam.y) cam.y = y0 - m; else if (y0 + TS + m > cam.y + VIEW) cam.y = y0 + TS + m - VIEW;
+    clampCam();
+  }
+  function centerOn(x, y) { cam.x = x * TS + TS / 2 - VIEW / 2; cam.y = y * TS + TS / 2 - VIEW / 2; clampCam(); }
   function drawMap() {
     ctx.imageSmoothingEnabled = false;
-    for (let y = 0; y < Sim.H; y++) for (let x = 0; x < Sim.W; x++) drawTile(x, y, tick);
-    weather(tick);
+    clampCam();
+    ctx.setTransform(1, 0, 0, 1, -cam.x, -cam.y);
+    const x0 = Math.floor(cam.x / TS), y0 = Math.floor(cam.y / TS);
+    for (let y = y0; y < Math.min(S.H, y0 + 9); y++) for (let x = x0; x < Math.min(S.W, x0 + 9); x++) drawTile(x, y, tick);
     if (hover && (hover.x !== selTile.x || hover.y !== selTile.y)) frameIn(hover.x * TS, hover.y * TS, 'rgba(235,228,207,.55)');
     corners(selTile.x * TS, selTile.y * TS, '#ffffff', 10, (!REDUCED && tick % 2) ? 1 : 0);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    weather(tick);
+    drawMini();
   }
+  // 小地图：大街区才有。我方金色、据点白色、找到的巢红色、电台蓝色，今晚守不住的边界闪红，框是现在看的范围
+  const mini = $('mini'), mctx = mini.getContext('2d');
+  function drawMini() {
+    const big = S.W > 8;
+    mini.hidden = !big; $('mapcap').classList.toggle('hasmini', big); cv.classList.toggle('pan', big);
+    if (!big) return;
+    const k = Math.floor(36 / S.W), off = Math.floor((36 - k * S.W) / 2), blink = REDUCED || tick % 2;
+    mctx.fillStyle = '#0b0d12'; mctx.fillRect(0, 0, 36, 36);
+    for (let y = 0; y < S.H; y++) for (let x = 0; x < S.W; x++) {
+      const t = Sim.tile(S, x, y), f = PLAN && PLAN.fronts.find(f => f.x === x && f.y === y);
+      mctx.fillStyle = !t.seen ? '#151821' : isBaseT(t) ? '#ffffff' : f && f.state === 'fail' && blink ? '#e2654b' : t.owned ? '#c8902e'
+        : t.nest && t.nest.found ? '#a8323a' : t.t === 'radio' ? '#4a7ad8' : t.z >= 4 ? '#3a2a2e' : t.z ? '#2c2c34' : '#3a4046';
+      mctx.fillRect(off + x * k, off + y * k, k, k);
+    }
+    mctx.strokeStyle = 'rgba(255,255,255,.8)'; mctx.lineWidth = 1;
+    mctx.strokeRect(off + cam.x / TS * k + 0.5, off + cam.y / TS * k + 0.5, VIEW / TS * k - 1, VIEW / TS * k - 1);
+  }
+  mini.addEventListener('click', e => {
+    const r = mini.getBoundingClientRect(), k = Math.floor(36 / S.W), off = Math.floor((36 - k * S.W) / 2);
+    const x = Math.floor(((e.clientX - r.left) / r.width * 36 - off) / k), y = Math.floor(((e.clientY - r.top) / r.height * 36 - off) / k);
+    if (x >= 0 && y >= 0 && x < S.W && y < S.H) { centerOn(x, y); drawMap(); }
+  });
   setInterval(() => { tick++; if (S && PLAN) drawMap(); }, 450);
 
   function tileAt(e) {
     const r = cv.getBoundingClientRect();
-    const x = Math.floor((e.clientX - r.left) / r.width * Sim.W), y = Math.floor((e.clientY - r.top) / r.height * Sim.H);
-    return x >= 0 && y >= 0 && x < Sim.W && y < Sim.H ? { x, y } : null;
+    const x = Math.floor(((e.clientX - r.left) / r.width * VIEW + cam.x) / TS), y = Math.floor(((e.clientY - r.top) / r.height * VIEW + cam.y) / TS);
+    return x >= 0 && y >= 0 && x < S.W && y < S.H ? { x, y } : null;
   }
-  cv.addEventListener('click', e => { const p = tileAt(e); if (p) { selTile = p; tab = 'tile'; render(); } });
+  // 拖动地图：按住移动超过几个像素就算拖，松手那下不算点击
+  let drag = null;
+  cv.addEventListener('pointerdown', e => { if (S.W > 8) drag = { x: e.clientX, y: e.clientY, cx: cam.x, cy: cam.y, moved: false }; });
+  addEventListener('pointerup', () => { if (drag && drag.moved) setTimeout(() => { drag = null; }, 0); else drag = null; });
+  cv.addEventListener('click', e => { if (drag && drag.moved) return; const p = tileAt(e); if (p) { selTile = p; camSel = `${S.seed}|${p.x},${p.y}`; tab = 'tile'; render(); } });
   cv.addEventListener('mousemove', e => {
+    if (drag && e.buttons) {
+      const r = cv.getBoundingClientRect(), dx = (e.clientX - drag.x) / r.width * VIEW, dy = (e.clientY - drag.y) / r.height * VIEW;
+      if (drag.moved || Math.abs(dx) + Math.abs(dy) > 4) { drag.moved = true; cam.x = drag.cx - dx; cam.y = drag.cy - dy; $('tip').hidden = true; drawMap(); return; }
+    }
     const p = tileAt(e), tip = $('tip');
     if (!p) { tip.hidden = true; hover = null; return; }
     if (!hover || hover.x !== p.x || hover.y !== p.y) { hover = p; drawMap(); }
     const t = Sim.tile(S, p.x, p.y);
     tip.textContent = !t.seen ? '未探明' : Sim.tname(t) + (t.owned ? ' · 我方' : fogged(t, Sim.reachable(S, p.x, p.y)) ? ' · 雾里看不清' : t.z ? ` · 丧尸 ${t.z}` : ' · 安全') + (t.scream ? ' · 尖叫者' : '') + (t.nest && t.nest.found ? (t.nest.sleep ? ' · 休眠的尸巢' : ` · ${t.nest.lv} 级尸巢`) : '') + (t.camp ? ' · 另一伙人' : '') + (t.drop ? ' · 空投' : '') + (t.gear && t.gear.length ? ' · 有装备' : '');
     tip.hidden = false;
-    tip.style.left = Math.max(0, Math.min(384 - tip.offsetWidth, p.x * 48 + 24 - tip.offsetWidth / 2)) + 'px';
-    tip.style.top = (p.y === 0 ? 50 : p.y * 48 - 20) + 'px';
+    const sx = p.x * TS - cam.x, sy = p.y * TS - cam.y;
+    tip.style.left = Math.max(0, Math.min(VIEW - tip.offsetWidth, sx + 24 - tip.offsetWidth / 2)) + 'px';
+    tip.style.top = (sy < TS ? sy + 50 : sy - 20) + 'px';
   });
   cv.addEventListener('mouseleave', () => { $('tip').hidden = true; hover = null; drawMap(); });
   cv.addEventListener('keydown', e => {
     const d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
     if (!d) return;
     e.preventDefault();
-    selTile = { x: Math.max(0, Math.min(Sim.W - 1, selTile.x + d[0])), y: Math.max(0, Math.min(Sim.H - 1, selTile.y + d[1])) };
+    selTile = { x: Math.max(0, Math.min(S.W - 1, selTile.x + d[0])), y: Math.max(0, Math.min(S.H - 1, selTile.y + d[1])) };
     tab = 'tile'; render();
   });
 
@@ -846,7 +901,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
   function render() {
     PLAN = Sim.nightPlan(S);
     if (selSurv != null && !Sim.byId(S, selSurv)) selSurv = null;
-    drawMap(); renderHud(); renderPeople(); renderCap(); renderSide(); renderBar(); renderOverlay();
+    follow(); drawMap(); renderHud(); renderPeople(); renderCap(); renderSide(); renderBar(); renderOverlay();
   }
 
   function renderHud() {
@@ -918,7 +973,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
 
   function renderCap() {
     const v = selSurv != null ? Sim.byId(S, selSurv) : null;
-    if (!v) { $('mapcap').innerHTML = `<span>先在左边选人，再点地块派工。</span><span>悬停地块看名字，方向键也能移动。</span>`; return; }
+    if (!v) { $('mapcap').innerHTML = `<span>先在左边选人，再点地块派工。</span><span>${S.W > 8 ? '悬停看名字，方向键移动，按住能拖动地图。' : '悬停地块看名字，方向键也能移动。'}</span>`; return; }
     const T2 = Sim.TRAITS[v.trait], rel = relOf(v.id);
     $('mapcap').innerHTML = `<span>派 <span class="c-amber">${v.name}</span>（${v.job}）去哪？点地块。${rel ? ' ' + rel : ''}</span>
       <span>${v.gear ? `${ic(v.gear)}<span class="c-amber">${Sim.GEAR[v.gear].name}</span> · ` : ''}${T2 ? `<span style="color:#d6b98a">${T2.name}</span>：${T2.desc}` : ''}</span>`;
@@ -1231,6 +1286,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
       <p class="dim">停电第三天，你被推举为这栋老公寓的楼长。电台说救援一个月内会到，前提是你们撑得到那时候。</p>
       <ol class="scroll" style="max-height:330px">
         <li>在左边选一个住户，再点地图上的街区，右边会列出能做的事：搜刮、清理丧尸、收复、拆除、驻守、加固。</li>
+        <li>开新局时可以选街区大小：小街区 8×8，节奏快；大街区 12×12，东西多、出路多、巢也多，一局更长。大街区一次只看得到一部分，按住地图拖动，或者点右下角的小地图移过去。</li>
         <li>夜里尸群会从每块和未收复街区接壤的地盘进攻，边界越长来得越多，地图边缘不会来丧尸。底栏和“今晚”分页会提前标出守不住的地方，地图上会闪红。</li>
         <li>边界街区守不住就会丢，和据点断开的地块也会一起丢。据点守不住会撞坏铁门，铁门撞开就输了。</li>
         <li>清干净的街区可以花几天收复，长期提供床位、食物或防御；也可以拆掉，一次换一大笔材料。</li>
@@ -1257,9 +1313,10 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
         <li>清晨偶尔会有事找上门：街区里的另一伙人（白旗）、收音机里的求救信号（蓝旗）、发烧的住户、烧起来的楼。有些事会接着发展好几天。</li>
       </ol>
       <div class="row"><button class="btn primary" id="d-ok">开始</button></div>`, () => { $('d-ok').onclick = closeDlg; });
-    if (mode === 'new') return dlg(`<h2>开新的一局？</h2><p>现在的进度会被覆盖。想留着的话，先去存档里复制一份。</p>
-      <div class="row"><button class="btn primary" id="d-yes">开新的一局</button><button class="btn" id="d-no">取消</button></div>`,
-      () => { $('d-yes').onclick = () => { newGame(); mode = 'help'; renderOverlay(); }; $('d-no').onclick = closeDlg; });
+    if (mode === 'new') return dlg(`<h2>开新的一局</h2><p class="dim">${S.over ? '选一条街。' : '现在的进度会被覆盖。想留着的话，先去存档里复制一份。'}</p>
+      <div class="cards two">${Object.keys(Sim.MAPS).map(k => `<button class="btn card" data-size="${k}"><b>${Sim.MAPS[k].name}</b><span class="d">${Sim.MAPS[k].desc}</span></button>`).join('')}</div>
+      <div class="row"><button class="btn" id="d-no">取消</button></div>`,
+      () => { $('dlg').querySelectorAll('[data-size]').forEach(b => b.onclick = () => { newGame(b.dataset.size); mode = 'help'; renderOverlay(); }); $('d-no').onclick = closeDlg; });
     if (mode === 'save') return dlg(`<h2>存档</h2>
       <p class="dim">进度会自动存在这个浏览器里。换设备或想备份时，复制这段文本，之后粘贴回来。</p>
       <textarea id="exp" readonly aria-label="当前存档">${Sim.serialize(S).replace(/</g, '&lt;')}</textarea>
@@ -1267,7 +1324,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
       <textarea id="imp" aria-label="粘贴存档" placeholder="在这里粘贴存档文本"></textarea>
       <div class="row"><button class="btn" id="d-load">载入</button><input type="file" id="d-file" accept=".json,.txt,application/json,text/plain"><button class="btn primary" id="d-close">关闭</button></div>`, () => {
         $('d-copy').onclick = async () => { const ta = $('exp'); try { await navigator.clipboard.writeText(ta.value); $('d-msg').textContent = '已复制'; } catch (e) { ta.focus(); ta.select(); $('d-msg').textContent = '已选中，按 Ctrl/⌘+C'; } };
-        const tryLoad = txt => { try { const ns = Sim.deserialize(txt.trim()); mode = null; selSurv = null; overSeen = false; commit(ns); } catch (e) { $('d-msg').textContent = '载入失败：' + e.message; } };
+        const tryLoad = txt => { try { const ns = Sim.deserialize(txt.trim()); mode = null; selSurv = null; overSeen = false; selTile = { x: ns.base[0], y: ns.base[1] }; camSel = ''; S = ns; centerOn(...ns.base); commit(ns); } catch (e) { $('d-msg').textContent = '载入失败：' + e.message; } };
         $('d-load').onclick = () => tryLoad($('imp').value);
         $('d-file').onchange = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => tryLoad(String(r.result)); r.readAsText(f); };
         $('d-close').onclick = closeDlg;
@@ -1293,13 +1350,17 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
         <div class="row"><span class="big">${o.score}</span><span class="dim">分 · 活下来 ${S.surv.length} 人 · 收复 ${Sim.owned(S).length} 块 · 失去 ${S.stats.lost} 人 · 清掉 ${S.stats.killed} 只</span></div>
         ${o.win ? `<p><span class="c-amber">${ENDING[o.ending] || ''}</span>　<span class="dim">这条街还有别的出路。</span></p>` : ''}
         <div class="row"><button class="btn primary" id="d-again">再来一局</button><button class="btn" id="d-look">看看地图</button></div>`,
-        () => { $('d-again').onclick = () => { newGame(); mode = 'help'; renderOverlay(); }; $('d-look').onclick = () => { overSeen = true; closeDlg(); }; });
+        () => { $('d-again').onclick = () => { mode = 'new'; renderOverlay(); }; $('d-look').onclick = () => { overSeen = true; closeDlg(); }; });
     }
     $('ov').hidden = true;
   }
 
   const ENDING = { rescue: '结局：得救', safe: '结局：安全区', self: '结局：村子' };
-  function newGame() { selSurv = null; selTile = { x: 1, y: 6 }; mode = null; tab = 'tile'; overSeen = false; report = null; commit(Sim.newGame()); }
+  function newGame(size) {
+    const ns = Sim.newGame(undefined, { size });
+    selSurv = null; selTile = { x: ns.base[0], y: ns.base[1] }; camSel = ''; mode = null; tab = 'tile'; overSeen = false; report = null;
+    S = ns; centerOn(...ns.base); commit(ns);
+  }
 
   // ---------- 缩放 ----------
   let rotateSkipped = false;
@@ -1323,6 +1384,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && ['help', 'save', 'new', 'rules'].includes(mode)) closeDlg(); });
 
   S = load() || Sim.newGame();
+  selTile = { x: S.base[0], y: S.base[1] }; centerOn(...S.base);
   if (S.day === 1 && !S.log.some(l => l.d > 1)) mode = 'help';
   fit(); render();
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { fit(); render(); });
