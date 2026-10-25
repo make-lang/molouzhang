@@ -5,7 +5,7 @@ const PLAN_ORDER = ['compost', 'stretcher', 'herb', 'clean', 'carpentry', 'diet'
 for (const k of Object.keys(Sim.TECHS)) if (!PLAN_ORDER.includes(k)) PLAN_ORDER.push(k);
 // 律法：有签字机会就按顺序签第一条签得了的（opt.laws 指定就只签这几条，tools/laws.js 用）
 const PLAN_LAWS = ['patrol', 'ration', 'quarantine', 'promise', 'vet', 'burial', 'overtime'];
-const GREEDY_LAWS = ['patrol', 'open', 'merit', 'exile', 'overtime', 'confiscate', 'selfish'];
+const GREEDY_LAWS = ['patrol', 'ration', 'vet', 'confiscate', 'merit', 'exile', 'council'];   // 新手挑看起来有用的：守夜、省粮、拿东西；随机挑只有 15%
 const { TYPES } = Sim;
 
 // 装备：急救包先救被咬的人，再给最能打的伤员（留一个备着防咬伤）；仓库里的东西按用处发给最合适的人
