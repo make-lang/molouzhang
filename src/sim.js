@@ -608,6 +608,13 @@ const Sim = (() => {
   const MOOD_LV = [{ name: '崩溃', min: 0 }, { name: '低落', min: 20 }, { name: '平常', min: 40 }, { name: '振作', min: 65 }];
   const moodLv = (s, v) => { const m = mood(s, v); return m >= 65 ? 3 : m >= 40 ? 2 : m >= 20 ? 1 : 0; };
   const avgMood = s => s.surv.length ? s.surv.reduce((a, v) => a + mood(s, v), 0) / s.surv.length : 50;
+  // 给玩家看的人心：不给数字，只给档位、档位里偏哪边、这几天的走向（v.mh 是最近几天晚上的人心）
+  function moodDesc(s, v) {
+    const m = mood(s, v), lv = m >= 65 ? 3 : m >= 40 ? 2 : m >= 20 ? 1 : 0;
+    const sub = [m < 8 ? '撑不下去了' : '', m < 26 ? '快撑不住了' : m > 34 ? '快缓过来了' : '', m < 46 ? '偏低' : m > 59 ? '偏高' : '', m >= 85 ? '精神很好' : ''][lv];
+    const old = (v.mh || [])[0], d = old == null ? 0 : m - old;
+    return { lv, name: MOOD_LV[lv].name, sub, trend: d >= 6 ? '这几天在好转' : d <= -6 ? '这几天越来越沉' : '' };
+  }
   // 心里最重的那件事（坏的或好的）
   const worstMem = (s, v, good) => (v.mem || []).filter(m => good ? memNow(s, m) > 0 : memNow(s, m) < 0).sort((a, b) => Math.abs(memNow(s, b)) - Math.abs(memNow(s, a)))[0] || null;
 
@@ -1884,7 +1891,7 @@ const Sim = (() => {
       } }
     for (const v of s.surv) {
       const lv = moodLv(s, v), was = v.ml == null ? 2 : v.ml;
-      v.ml = lv;
+      v.ml = lv; v.mh = (v.mh || []).concat(mood(s, v)).slice(-3);
       if (lv === was) continue;
       const bad = worstMem(s, v), good = worstMem(s, v, true), why = bad ? memTxt(bad) : (moodNow(s, v).filter(x => x[1] < 0)[0] || ['日子太难'])[0];
       if (lv === 0) L(`${v.name}一整天没开口。${why}，人像被抽空了。再这样下去，怕是留不住。`, 'bad');
@@ -2047,46 +2054,46 @@ const Sim = (() => {
       const v = byId(s, p.id), n = v.name, who = p.who, u = p.u != null && byId(s, p.u);
       const title = `和${n}聊聊`;
       if (p.t === 'bitten') return { title, text: `${n}坐在角落，一直盯着手臂上发黑的伤口。「楼长，我是不是……」`, choices: [
-        { label: '「我们会想办法的。」', note: '人心 +6', ok: true },
+        { label: '「我们会想办法的。」', note: '他会稍微安心一点', ok: true },
         { label: '把急救包给他用上', note: s.stash.includes('medkit') ? '咬伤马上治好，用掉一个急救包' : '仓库里没有急救包', ok: s.stash.includes('medkit') },
-        { label: '陪他坐到天黑', note: '人心 +10，但你明天抽不出空再找人聊', ok: true },
+        { label: '陪他坐到天黑', note: '他会好受很多，但你明天抽不出空再找人聊', ok: true },
       ] };
       if (p.t === 'grief') {
         const text = { sentAway: `${n}在顶楼站了很久。「${who}走的那天，你连门都没让我送。」`, died: `${n}把${who}的东西收进一个纸箱，一直没打开。`, turned: `${n}说他还会梦到那天晚上储藏室里的声音。「那还是${who}吗？」`, left: `${n}说${who}走之前跟他打过招呼，他没拦。` }[p.k];
         const done = (s.farewell || []).includes(who);
         return { title, text, choices: [
-          { label: `陪他聊聊${who}`, note: '人心 +10', ok: true },
+          { label: `陪他聊聊${who}`, note: '他会好受很多', ok: true },
           { label: `给${who}办个简单的告别`, note: done ? '已经办过了' : '-2 木料；所有记着这件事的人都好受一些', ok: !done && s.mat >= 2 },
           { label: '「活着的人得往前看。」', note: '有的人听得进去，有的人听不进去', ok: true },
         ] };
       }
       if (p.t === 'want') return { title, text: `${n}又提起来：${v.want.txt}。`, choices: [
-        { label: '答应这几天就派人去', note: '期限 +3 天，人心 +6；到期没办成，他会更失望', ok: !v.want.pledged },
-        { label: '说实话：现在抽不出人', note: '人心 +2', ok: true },
-        { label: '劝他放下', note: '牵挂没了，人心 -6', ok: true },
+        { label: '答应这几天就派人去', note: '期限多 3 天，他会高兴一些；到期没办成，会比原来更失望', ok: !v.want.pledged },
+        { label: '说实话：现在抽不出人', note: '聊胜于无', ok: true },
+        { label: '劝他放下', note: '牵挂没了，他会觉得你没当回事', ok: true },
       ] };
       if (p.t === 'feud') return { title, text: `${n}又在抱怨${u.name}：「他凭什么……」`, choices: [
         { label: `劝他跟${u.name}和好`, note: '四成机会说开', ok: true },
-        { label: '站在他这边', note: `他人心 +8，${u.name}会记恨你偏心`, ok: true },
+        { label: '站在他这边', note: `他会好受一些，${u.name}会记恨你偏心`, ok: true },
         { label: '各打五十大板', note: '谁也不得罪，也谁都没好受', ok: true },
       ] };
       if (p.t === 'stripped') return { title, text: `${n}还在为${p.at}被拆的事生气。「那是我们一条街的念想。」`, choices: [
-        { label: '跟他道歉', note: '人心 +8', ok: true },
+        { label: '跟他道歉', note: '他会好受一些', ok: true },
         { label: '解释：拆了才有材料守门', note: '会盖房子的人听得进去', ok: true },
-        { label: '「拆都拆了。」', note: '人心 -4', ok: true },
+        { label: '「拆都拆了。」', note: '他会更气', ok: true },
       ] };
       if (p.t === 'food') return { title, text: `${n}把碗推到一边：「又是这个。」`, choices: [
-        { label: '把你那份让给他', note: s.food >= 1 ? '-1 食物，人心 +8' : '没有存粮了', ok: s.food >= 1 },
-        { label: '答应过几天办一桌', note: '人心 +4', ok: true },
-        { label: '「大家都一样，忍一忍。」', note: '人心 +1', ok: true },
+        { label: '把你那份让给他', note: s.food >= 1 ? '-1 食物，他会好受一些' : '没有存粮了', ok: s.food >= 1 },
+        { label: '答应过几天办一桌', note: '他会稍微宽心', ok: true },
+        { label: '「大家都一样，忍一忍。」', note: '聊胜于无', ok: true },
       ] };
       if (p.t === 'down') return { title, text: `${n}这几天话很少。问起来，他说${p.txt}。`, choices: [
-        { label: '听他说完', note: '人心 +8', ok: true },
-        { label: '让他放一天假', note: '人心 +12，他今天不干活', ok: true },
-        { label: '「忙起来就不想了。」', note: '人心 +2', ok: true },
+        { label: '听他说完', note: '他会好受一些', ok: true },
+        { label: '让他放一天假', note: '他会好受很多，但今天不干活', ok: true },
+        { label: '「忙起来就不想了。」', note: '聊胜于无', ok: true },
       ] };
       return { title, text: `${n}在顶楼抽烟，看着远处的街。`, choices: [
-        { label: '聊聊以前的日子', note: '人心 +5', ok: true },
+        { label: '聊聊以前的日子', note: '他会稍微宽心', ok: true },
         { label: '问他有没有想做的事', note: v.want ? '他已经有心事了' : '他也许会说出一件心事（牵挂）', ok: !v.want },
         { label: '问他看明天天气怎么样', note: '顺便摸摸他看天准不准', ok: true },
       ] };
@@ -2661,7 +2668,7 @@ const Sim = (() => {
   }
 
   return {
-    VERSION, MAPS, mapOf, chat, canChat, setParty, canParty, partyCost, PARTY_GAP, mood, moodLv, moodNow, memNow, memTxt, MOOD_LV, avgMood, TECHS, ITEMS, BRANCHES, tech, techOpen, haveNeed, setResearch, setGen, powered, fortMax, RACK_MAX, studyPts, plotK, SEASON_LEN, FARM_FOOD, TILL, farmYield, FOODS, CROPS, cropK, plots, ripe, eatSeeds, setCrop, nextSeason, SEED_FOOD, SEED_P, RES, COST, canPay, costTxt, GROVE, LOG, grown, FORTS, DIRS, outEdges, fortAt, shooters, WORKS, COND_MAX, FIX, cond, WX, FLOOD_TXT, KNEE_WX, trustWx, SEASONS, SEASON_ORDER, seasonOf, forecast, selfFed, landing, INF_DAYS, NEST_R, NEST_HORDE, HORDE_BASE, nestHp, nestLv, nestZ, nestHint, FORT_MAX, BAR_MAX, TYPES, TRAITS, RULES, CITIES, ORIGINS, GEAR, equip, useMedkit, bikeReach, nestReach, canGo, craftCost, barMax, foodUse, has, surgeEvery, surgeIn,
+    VERSION, MAPS, mapOf, moodDesc, chat, canChat, setParty, canParty, partyCost, PARTY_GAP, mood, moodLv, moodNow, memNow, memTxt, MOOD_LV, avgMood, TECHS, ITEMS, BRANCHES, tech, techOpen, haveNeed, setResearch, setGen, powered, fortMax, RACK_MAX, studyPts, plotK, SEASON_LEN, FARM_FOOD, TILL, farmYield, FOODS, CROPS, cropK, plots, ripe, eatSeeds, setCrop, nextSeason, SEED_FOOD, SEED_P, RES, COST, canPay, costTxt, GROVE, LOG, grown, FORTS, DIRS, outEdges, fortAt, shooters, WORKS, COND_MAX, FIX, cond, WX, FLOOD_TXT, KNEE_WX, trustWx, SEASONS, SEASON_ORDER, seasonOf, forecast, selfFed, landing, INF_DAYS, NEST_R, NEST_HORDE, HORDE_BASE, nestHp, nestLv, nestZ, nestHint, FORT_MAX, BAR_MAX, TYPES, TRAITS, RULES, CITIES, ORIGINS, GEAR, equip, useMedkit, bikeReach, nestReach, canGo, craftCost, barMax, foodUse, has, surgeEvery, surgeIn,
     newGame, endDay, setTask, canDo, preview, resolveEvent, eventView,
     nightPlan, tileDefense, horde, beds, income, foodAhead, owned, tile, reachable, frontier, byId, ready, score, eff, tname,
     arrivalChance, serialize, deserialize, SKILL,
