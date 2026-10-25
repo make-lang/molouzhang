@@ -951,15 +951,30 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     return `<span class="res" title="今天白天：${WXN(F.now)}。${Sim.WX[F.now].day}${F.flood ? '\n' + Sim.FLOOD_TXT : ''}\n今晚听${whoSaid(g)}的：${WXN(g.g)}。${Sim.WX[g.g].night}\n点“今晚”分页看大家怎么说。">${ic(F.flood ? 'flood' : F.now, WXN(F.now))}${WXN(F.now)}${F.flood ? '·淹水' : ''}<small>·今晚${WXN(g.g)}${g.radio ? '' : '?'}</small></span>`;
   }
 
+  // 人心：档位和最重的一条原因；moodHtml 列出记着的事和眼前的处境
+  function moodTip(v) {
+    const lv = Sim.moodLv(S, v), why = moodWhy(v)[0];
+    return `${Sim.MOOD_LV[lv].name}${why ? '（' + why[0] + '）' : ''}`;
+  }
+  function moodWhy(v) {
+    const mem = (v.mem || []).map(m => [Sim.memTxt(m), Sim.memNow(S, m), m.d]).filter(x => x[1] !== 0);
+    return mem.concat(Sim.moodNow(S, v).map(x => [x[0], x[1]])).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+  }
+  function moodHtml(v) {
+    const lv = Sim.moodLv(S, v), eff = ['干活、守夜 -1，不肯去端巢和丧尸多的地方；夜里可能一走了之', '干活、守夜 -1，不肯去端巢和丧尸多的地方', '', '白天干活多出一把力'][lv];
+    const rows = moodWhy(v).slice(0, 4).map(([t, w, d]) => `<span class="${w > 0 ? 'c-good' : 'c-red'}">${w > 0 ? '+' : '-'}</span> ${t}${d ? `<span class="dim">（第 ${d} 天）</span>` : ''}`);
+    return `<div class="box ${lv <= 1 ? 'fail' : lv === 3 ? 'safe' : ''}"><span class="${['c-red', 'c-amber', '', 'c-good'][lv]}">${v.name} · ${Sim.MOOD_LV[lv].name}</span>${eff ? `<span class="dim">：${eff}</span>` : ''}${rows.length ? '<br>' + rows.join('<br>') : '<br><span class="dim">心里没什么事。</span>'}</div>`;
+  }
+
   function renderPeople() {
     $('pcount').textContent = `${S.surv.length} 人`;
     const box = $('people'), top = box.scrollTop;
     box.innerHTML = S.surv.map(v => {
       const tt = taskText(v), out = !Sim.ready(v);
       const T2 = Sim.TRAITS[v.trait];
-      return `<button class="pc${v.id === selSurv ? ' sel' : ''}${out ? ' out' : ''}" data-id="${v.id}" aria-pressed="${v.id === selSurv}" title="${v.job} · ${T2 ? T2.name + '：' + T2.desc : ''}${v.gear ? ' · 带着' + Sim.GEAR[v.gear].name : ''} · ${recTxt(v.rec || [0, 0])}">
+      return `<button class="pc${v.id === selSurv ? ' sel' : ''}${out ? ' out' : ''}" data-id="${v.id}" aria-pressed="${v.id === selSurv}" title="${v.job} · ${moodTip(v)} · ${T2 ? T2.name + '：' + T2.desc : ''}${v.gear ? ' · 带着' + Sim.GEAR[v.gear].name : ''} · ${recTxt(v.rec || [0, 0])}">
         <canvas width="36" height="36" data-pid="${v.id}"></canvas>
-        <span class="nm"><b>${v.name}</b>${T2 ? `<span class="trait">${T2.name}</span>` : `<span>${v.job}</span>`}</span>
+        <span class="nm"><b class="${['c-red', 'c-amber', '', 'c-good'][Sim.moodLv(S, v)]}">${v.name}</b>${T2 ? `<span class="trait">${T2.name}</span>` : `<span>${v.job}</span>`}</span>
         <span class="sk">${ic('fist', '战斗')}<em>${v.fight}</em>${ic('bag', '搜刮')}<em>${v.scav}</em>${ic('ham', '建造')}<em>${v.build}</em><span class="job">${v.job}</span></span>
         <span class="tk${tt.hurt ? ' hurt' : ''}">${tt.t}</span>
         ${v.want ? `<span class="kin" title="${v.want.txt}">${ic('flag', '牵挂')}</span>` : ''}
@@ -1065,6 +1080,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     if (t.drop) chip += '<span class="chip c-good">空投</span>';
     let h = `<div class="th"><b>${Sim.tname(t)}</b>${chip}<span class="dim">${x + 1},${y + 1}</span></div>
       <div class="desc">${t.owned && (t.farm || (t.t === 'park' && !t.gutted)) ? `${t.t === 'park' ? '公园改的菜园' : t.t === 'ruin' || t.gutted ? '开垦出来的菜园' : ty.desc + '院子里开了几畦菜'}，每天收 ${Sim.farmYield(t)} 份再乘作物这一季的倍率。${cropTxt(t)}` : t.farm ? '菜园荒了。' : t.gutted ? '拆了一部分，原本的用处没了。' : t.t === 'radio' && S.city === 'noradio' ? '电塔倒了，这里修好了也叫不来救援。' : ty.desc}${!t.owned && t.prog ? ` 施工 ${t.prog}/${ty.cost}。` : ''}</div>`;
+    { const sv = selSurv != null ? Sim.byId(S, selSurv) : null; if (sv) h += moodHtml(sv); }
     if (t.scream) h += `<div class="box fail"><span class="c-red">尖叫者</span><br><span class="dim">它让这里和四周的丧尸长得更快，夜里会把尸群引向它那一侧。把这一格清空就能解决它。</span></div>`;
     if (t.seen && !t.owned && !nest && Sim.nestHint(S, x, y)) h += `<div class="box fail dim">这一带的丧尸会自己繁殖，附近三格以内藏着一个没找到的尸巢。多看几块地，范围就能缩小。</div>`;
     if (dorm) h += `<div class="box fail"><span class="c-red">休眠的尸巢</span><br><span class="dim">一团还没醒的卵，现在不繁殖、不喷丧尸，但迟早会醒。趁它没醒端掉最省事：派人来清理，离地盘两格以内就能直接杀过去。</span></div>`;
@@ -1332,6 +1348,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
       <p class="dim">停电第三天，你被推举为这栋老公寓的楼长。电台说救援一个月内会到，前提是你们撑得到那时候。</p>
       <ol class="scroll" style="max-height:330px">
         <li>在左边选一个住户，再点地图上的街区，右边会列出能做的事：搜刮、清理丧尸、收复、拆除、驻守、加固。</li>
+        <li>人心：每个人记着对自己有分量的事（旧识被送走、心愿了了、一起撑过尸潮……），再加上吃得好不好、睡不睡得下。名字发绿是振作，白天干活多出一把力；发黄是低落，干活、守夜都差一截，也不肯去端巢；发红是崩溃，夜里可能一走了之。选中住户能看到他心里记着什么。坏事大多会慢慢淡掉。</li>
         <li>研究（“研究”分页）：派人在据点研究，攒研究点学会科技，夜里照样守据点。科技分农耕、营造、医护、武备、侦察五支，有的要先收复某栋楼，有的研究完要用掉一样关键物品（几样里任选一样，地块面板会写哪里翻得到）。翻到书、来了懂行的人（护理师、装潢师傅、菜贩、退休警察、外送员……）也会直接给进度，运气好翻到整本手册就直接学会。</li>
         <li>开新局时可以选街区大小：小街区 8×8，节奏快；大街区 12×12，东西多、出路多、巢也多，一局更长。大街区一次只看得到一部分，按住地图拖动，或者点右下角的小地图移过去。</li>
         <li>夜里尸群会从每块和未收复街区接壤的地盘进攻，边界越长来得越多，地图边缘不会来丧尸。底栏和“今晚”分页会提前标出守不住的地方，地图上会闪红。</li>

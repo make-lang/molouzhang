@@ -1,6 +1,7 @@
 // 末日楼长 · 模拟层 v0.2
 // 纯逻辑：所有函数接收 state、返回新 state，不碰 DOM。随机数种子存在 state 里，存档可完整复现。
 // v0.2：夜袭按边界逐块结算（扩张会拉长防线）；建筑可以拆掉换材料；食物充足时会有人来投奔。
+// v0.21：人心。每个人记着几件对自己有分量的事（旧识被送走、心愿了了、一起撑过尸潮……），人心分四档，低落干活差一截，崩溃会半夜走掉。
 // v0.20：科技扩到五支 33 项：加武备、侦察两支，各支加深（水耕架、地窖、碉堡、机修、发电机、截肢、燃烧瓶、追踪……），关键物品 19 种，几项科技抢同一种物品。
 // v0.19：科技树：派人在据点研究，书和懂行的人给进度，有的要先收复某栋楼、研究完要用掉一样关键物品；农耕、营造、医护三支共 12 项。
 // v0.18：开局可以选街区大小：小街区 8×8，大街区 12×12（东西多、出路多、巢多，村子要 12 人）；界面一次看 8×8，能拖动、有小地图。
@@ -21,7 +22,7 @@
 // v0.3：住户有绑在地图上的牵挂（救人、取物、收回老家、别拆），有期限，达成会更卖力，放着不管会出事。
 const Sim = (() => {
   'use strict';
-  const VERSION = 18;
+  const VERSION = 19;
   // 街区大小：每局开局选，存在 s.W / s.H / s.base 里。小街区就是原来的 8×8；大街区 12×12，东西多、出路多，巢也多
   const MAPS = {
     small: { name: '小街区', W: 8, H: 8, base: [1, 6], radio: [5, 7], nests: [3, 5], nestFar: 8, scream: 2, village: 10,
@@ -504,6 +505,70 @@ const Sim = (() => {
   const wxWork = s => storm(s) ? 0.5 : 1;
   const tonight = (s, real) => s.wx ? (real ? s.wx[0].w : s.wx[0].g) : null;
 
+  // ---------- 人心 ----------
+  // 每个人记着几件对自己有分量的事（v.mem），人心从记忆和眼前的处境算出来。
+  // 一条记忆 { k, d, w, f, who, at }：k 哪类事、d 哪天、w 对人心的影响、f 每天淡掉多少（0 = 不会淡）、who 牵涉到的人、at 在哪
+  const MEM_MAX = 8;
+  const MEMS = {
+    sentAway:    '忘不了{who}是怎么被送走的',
+    turned:      '忘不了{who}尸变的那一夜',
+    died:        '{who}没能回来',
+    left:        '{who}走了',
+    wantLost:    '等的事一直没人管',
+    stripped:    '想保住的{at}被拆了',
+    sosBroken:   '答应了求救的人，却没有去',
+    hungry:      '饿过肚子',
+    feud:        '跟人吵了一架',
+    amputated:   '少了一截，干什么都吃力',
+    saved:       '从鬼门关被拉了回来',
+    friendSaved: '{who}保住了一条命',
+    want:        '心愿了了',
+    rescued:     '{who}被接了回来',
+    rescuedMe:   '被{who}他们救了回来',
+    surge:       '大家一起撑过了尸潮',
+    razed:       '亲手烧了一个尸巢',
+    feast:       '大家好好吃了一顿',
+    claimed:     '收复了{at}',
+  };
+  const memNow = (s, m) => m.w > 0 ? Math.max(0, m.w - m.f * (s.day - m.d)) : Math.min(0, m.w + m.f * (s.day - m.d));
+  const memTxt = m => MEMS[m.k].replace('{who}', m.who || '').replace('{at}', m.at || '');
+  // 记下一件事。同一类、同一个人的事只记最近一次；记满了挤掉分量最轻的
+  function remember(s, v, k, w, f, o = {}) {
+    if (!v.mem) v.mem = [];
+    v.mem = v.mem.filter(m => memNow(s, m) !== 0 && !(m.k === k && (m.who || '') === (o.who || '')));
+    v.mem.push({ k, d: s.day, w, f, ...(o.who ? { who: o.who } : {}), ...(o.at ? { at: o.at } : {}) });
+    if (v.mem.length > MEM_MAX) { v.mem.sort((a, b) => Math.abs(memNow(s, b)) - Math.abs(memNow(s, a))); v.mem.length = MEM_MAX; }
+  }
+  const friendOf = (s, a, b) => s.rel.some(r => r[2] === 'friend' && ((r[0] === a && r[1] === b) || (r[0] === b && r[1] === a)));
+  // 有人出事：旧识记重的一笔，其他人记轻的（wo 为 0 就只有旧识记得）
+  function grief(s, v, k, wf, ff, wo, fo) {
+    for (const u of s.surv) if (u.id !== v.id) {
+      if (friendOf(s, u.id, v.id)) remember(s, u, k, wf, ff, { who: v.name });
+      else if (wo) remember(s, u, k, wo, fo, { who: v.name });
+    }
+  }
+  const everyone = (s, k, w, f, o) => { for (const u of s.surv) remember(s, u, k, w, f, o); };
+  // 眼前的处境：[说明, 影响]
+  function moodNow(s, v) {
+    const out = [], d = s.diet || [];
+    if (s.hunger > 0) out.push(['饿着肚子', -15]);
+    if (d.length >= 5 && new Set(d.flat()).size === 1 && !tech(s, 'diet')) out.push(['天天吃同一样', -10]);
+    else if (d.length && d[d.length - 1].length >= 3) out.push(['吃得杂', 4]);
+    if (s.surv.length > beds(s)) out.push(['床位不够，挤着睡', -8]);
+    if (v.inf > 0) out.push(['被咬了，心里怕', -12]);
+    else if (v.inj > 0) out.push(['身上有伤', -4]);
+    if (s.surv.some(u => u.id !== v.id && friendOf(s, u.id, v.id))) out.push(['有旧识在身边', 4]);
+    if (has(s, 'ration')) out.push(['配给吃不饱', -5]);
+    return out;
+  }
+  const mood = (s, v) => clamp(Math.round(50 + (v.mem || []).reduce((a, m) => a + memNow(s, m), 0) + moodNow(s, v).reduce((a, x) => a + x[1], 0)), 0, 100);
+  // 四档：3 振作（白天干活 +1）、2 平常、1 低落（干活、守夜 -1，不肯去最危险的地方）、0 崩溃（同低落，夜里可能走掉）
+  const MOOD_LV = [{ name: '崩溃', min: 0 }, { name: '低落', min: 20 }, { name: '平常', min: 40 }, { name: '振作', min: 65 }];
+  const moodLv = (s, v) => { const m = mood(s, v); return m >= 65 ? 3 : m >= 40 ? 2 : m >= 20 ? 1 : 0; };
+  const avgMood = s => s.surv.length ? s.surv.reduce((a, v) => a + mood(s, v), 0) / s.surv.length : 50;
+  // 心里最重的那件事（坏的或好的）
+  const worstMem = (s, v, good) => (v.mem || []).filter(m => good ? memNow(s, m) > 0 : memNow(s, m) < 0).sort((a, b) => Math.abs(memNow(s, b)) - Math.abs(memNow(s, a)))[0] || null;
+
   // ---------- 派生量 ----------
   const beds = s => owned(s).reduce((a, t) => a + (eff(t).beds || 0) + (has(s, 'bunks') && !t.gutted && (t.t === 'house' || t.t === 'school') ? 2 : 0), 0);
   // 菜园：开垦出来的地和收复的公园。一整片（废墟、拆过的楼、公园）收 3，完好的楼院子里收 1，再乘作物的季节倍率
@@ -678,7 +743,7 @@ const Sim = (() => {
   // 关系加成：同一任务、同一地块的旧识 +1、过节 -1
   function relBonus(s, list) {
     const b = {}, quarrels = [];
-    for (const v of list) b[v.id] = 0;
+    for (const v of list) b[v.id] = moodLv(s, v) <= 1 ? -1 : 0;   // 低落、崩溃的人干活、守夜都 -1
     for (const [a, c, kind] of s.rel) {
       const va = list.find(v => v.id === a), vc = list.find(v => v.id === c);
       if (!va || !vc || groupKey(va) !== groupKey(vc) || va.task.k === 'fortify') continue;
@@ -765,7 +830,7 @@ const Sim = (() => {
     const v = {
       id: s.nextId++, name: pick(s, pool), job: job.name,
       fight: j(job.f), scav: j(job.s), build: j(job.b),
-      inj: 0, inf: 0, sulk: 0, task: { k: 'defend' }, trait: pick(s, Object.keys(TRAITS)), gear: null,
+      inj: 0, inf: 0, sulk: 0, task: { k: 'defend' }, trait: pick(s, Object.keys(TRAITS)), gear: null, mem: [],
     };
     if (v.trait === 'bigeater') v.fight = Math.min(5, v.fight + 1);
     skyOf(s, v);
@@ -829,6 +894,7 @@ const Sim = (() => {
     const k = ['fight', 'scav', 'build'].filter(k => v[k] < 5).sort((a, b) => v[b] - v[a])[0];
     if (k) v[k] = Math.min(5, v[k] + (has(s, 'promise') ? 2 : 1));
     v.want = null;
+    remember(s, v, 'want', 12, 0.25);
     s.log.push({ d: s.day, tone: 'good', msg: msg + (k ? `${v.name}干劲十足，${SKILL[k]}提升了。` : '') });
   }
 
@@ -1137,7 +1203,7 @@ const Sim = (() => {
     if (t.camp) return false;   // 别人的地盘，不能动
     if (k === 'scav') return canGo(s, v, x, y) && (t.food + t.mat > 0 || t.gear.length > 0 || (t.items || []).length > 0 || (t.books || []).length > 0);
     if (k === 'hot') return tech(s, 'hothouse') && plots(s).includes(t) && !t.hot;
-    if (k === 'clear') return !t.owned && (t.nest && t.nest.found ? nestReach(s, x, y) : frontier(s, x, y) && t.z > 0) && !tr(v, 'coward');
+    if (k === 'clear') return !t.owned && (t.nest && t.nest.found ? nestReach(s, x, y) : frontier(s, x, y) && t.z > 0) && !tr(v, 'coward') && !(moodLv(s, v) <= 1 && (t.nest || t.z >= 4));   // 低落的人不肯去端巢、清丧尸多的地方
     if (k === 'claim') return !t.owned && frontier(s, x, y) && t.z === 0 && !t.nest;
     if (k === 'strip') return !isBase(t) && t.strip > 0 && reachable(s, x, y) && t.z === 0 && !t.nest;
     if (k === 'farm') return canFarm(t);
@@ -1229,6 +1295,7 @@ const Sim = (() => {
     const die = (v, msg) => {
       s.surv = s.surv.filter(u => u.id !== v.id); s.gone.push(v.name); s.stats.lost++;
       v.dead = true; L(msg, 'bad');
+      grief(s, v, 'died', -20, 0.4, -5, 0.2);
     };
     // 受伤：安全帽先挡一次；真受了伤，身上的装备可能掉在出事的地块，之后还能捡回来
     const injure = (v, z, t) => {
@@ -1273,6 +1340,7 @@ const Sim = (() => {
     for (const v of team) if (!canDo(s, v, v.task.k, v.task.x, v.task.y, v.task.item)) v.task = { k: 'defend' };
     const { b: bonus, quarrels } = relBonus(s, team);
     for (const [a, c] of quarrels) L(`${a}和${c}一路上互相不对付，效率很差。`, 'bad');
+    for (const v of team) if (moodLv(s, v) === 3) bonus[v.id]++;   // 振作的人白天干活多出一把力（守夜不算，跟预报一致）
 
     // 加固：据点加工事并修铁门；其他地块堆路障
     for (const v of team.filter(v => v.task.k === 'fortify')) {
@@ -1396,6 +1464,7 @@ const Sim = (() => {
           t.food += 3; t.mat += 5; t.gear.push(pick(s, NEST_LOOT));
           L(`${who}在${nm}清掉 ${kills} 只，一把火烧了尸巢！附近的丧尸散了一些。只要附近没有别的巢，这一带就不会再自己冒出丧尸。`, 'good');
           takeGear(t, who);
+          for (const v of g) if (!v.dead) remember(s, v, 'razed', 6, 0.25);
           // 线索：烧光尸巢也是一条出路
           if (s.stats.nests === 1 && nests(s).length) L(`${g[0].name}看着烧焦的巢，说：「要是把这些东西全烧光，这条街就能住人了。」`);
         } else if (nested) {
@@ -1436,7 +1505,7 @@ const Sim = (() => {
           t.owned = true; t.prog = cost;
           L(`${nm}收复了，${who}留下来守第一夜。${t.gutted ? '拆过的楼只能当通道用。' : TYPES[t.t].desc}`, 'good');
           if (t.t === 'park' && !t.gutted) for (let i = 0; i < 2; i++) { const sk = pick(s, Object.keys(CROPS)); s.seeds[sk] = (s.seeds[sk] || 0) + 1; L(`公园的工具间里还有一包${FOODS[sk].name}种子。`); }
-          for (const v of g) v.task = { k: 'defend', x, y };   // 施工队留下来守第一夜
+          for (const v of g) { v.task = { k: 'defend', x, y }; remember(s, v, 'claimed', 3, 0.3, { at: TYPES[t.t].name }); }   // 施工队留下来守第一夜
           takeGear(t, who);
           for (const u of s.surv) if (u.want && u.want.k === 'reclaim' && u.want.x === x && u.want.y === y)
             fulfil(s, u, `${u.name}站在自家门口看了很久。`);
@@ -1449,7 +1518,7 @@ const Sim = (() => {
       } else if (k === 'strip') {
         if (t.z > 0) { L(`${nm}又有丧尸游荡进来，拆不了。`, 'bad'); continue; }
         for (const u of s.surv) if (u.want && u.want.k === 'protect' && u.want.x === x && u.want.y === y) {
-          u.want = null; u.sulk = 2;
+          u.want = null; u.sulk = 2; remember(s, u, 'stripped', -12, 0.3, { at: TYPES[t.t].name });
           if (!tr(u, 'charmer')) for (const v of g) if (v.id !== u.id && !tr(v, 'charmer') && !s.rel.some(r => (r[0] === u.id && r[1] === v.id) || (r[0] === v.id && r[1] === u.id))) s.rel.push([u.id, v.id, 'feud']);
           L(`${u.name}看到${TYPES[t.t].name}被拆，气得两天不跟人说话，也跟${g.filter(v => v.id !== u.id).map(v => v.name).join('、') || '自己'}结下了梁子。`, 'bad');
         }
@@ -1509,7 +1578,7 @@ const Sim = (() => {
         if (sos) {
           if (found) {
             const got = [];
-            for (let i = 0; i < sos.n; i++) { const nv = recruit(s); nv.want = null; got.push(`${nv.name}（${nv.job}）`); }
+            for (let i = 0; i < sos.n; i++) { const nv = recruit(s); nv.want = null; got.push(`${nv.name}（${nv.job}）`); remember(s, nv, 'rescuedMe', 8, 0.2, { who: g[0].name }); }
             s.sos = null;
             L(`${who}在${nm}找到了发求救信号的人：${got.join('、')}。`, 'good');
           } else L(`${who}在${nm}喊了一整天，没人回应。也许他们换了地方躲。`, 'bad');
@@ -1519,7 +1588,9 @@ const Sim = (() => {
           const kin = asker.want.kin, nv = recruit(s);
           nv.want = null;
           s.rel.push([asker.id, nv.id, 'friend']);
+          remember(s, nv, 'rescuedMe', 8, 0.2, { who: g[0].name });
           fulfil(s, asker, `${who}在${nm}找到了${asker.name}的${kin}${nv.name}（${nv.job}），把人接了回来。`);
+          remember(s, asker, 'rescued', 15, 0, { who: nv.name });
         } else L(`${who}在${nm}找了一整天，没找到${asker.name}的${asker.want.kin}。`, 'bad');
       }
     }
@@ -1533,10 +1604,9 @@ const Sim = (() => {
     // 吃腻了：连着 5 天都只有同一种东西吃，每天两成机会有人赌气
     s.diet = (s.diet || []).concat([Object.keys(ate)]).slice(-5);
     const menu = new Set(s.diet.flat());
-    if (s.diet.length >= 5 && menu.size === 1 && !tech(s, 'diet') && rand(s) < 0.2) {
-      const cand = s.surv.filter(v => ready(v));
-      if (cand.length) { const v = pick(s, cand); v.sulk = Math.max(v.sulk, 2); L(`连着好几天只有${FOODS[[...menu][0]].name}吃，${v.name}吃不下了，明天不想干活。`, 'bad'); }
-    }
+    if (s.diet.length >= 5 && menu.size === 1 && !tech(s, 'diet') && !(s.diet.length >= 6 || s.dull)) {   // 吃腻了：算进人心，第一天提一句
+      s.dull = true; L(`连着好几天只有${FOODS[[...menu][0]].name}吃，大家端起碗都叹气。`, 'bad');
+    } else if (menu.size > 1) s.dull = false;
     if (has(s, 'ration') && s.surv.length && rand(s) < 0.1) {
       const v = pick(s, s.surv); v.sulk = Math.max(v.sulk, 2);
       L(`${v.name}受不了配给，跟你吵了一架，明天不出门。`, 'bad');
@@ -1544,11 +1614,13 @@ const Sim = (() => {
     if (s.food < 0) {
       s.food = 0;
       s.hunger = (s.hunger || 0) + 1;
+      everyone(s, 'hungry', -6, 0.3);
       if (s.hunger === 1) L('今晚有人没吃上饭。再断一天粮，就会有人走。', 'bad');
       else if (s.surv.length) {
         const v = pick(s, s.surv);
         if (v.gear) s.stash.push(v.gear);
         s.surv = s.surv.filter(u => u.id !== v.id); s.gone.push(v.name); s.stats.lost++;
+        grief(s, v, 'left', -8, 0.3, 0, 0);
         L(`断粮了。${v.name}半夜收拾东西走了。`, 'bad');
       }
     } else s.hunger = 0;
@@ -1617,6 +1689,7 @@ const Sim = (() => {
     // 探照灯：雾夜每盏烧 1 化学品
     const lamps = plan.fronts.filter(f => f.lit).length;
     if (lamps && !powered(s)) s.chem = Math.max(0, s.chem - lamps);
+    if (plan.surge && s.wall > 0) everyone(s, 'surge', 5, 0.3);
     if (plan.fronts.length && held === plan.fronts.length) L(`夜里 ${held} 处边界都遭到冲击，全部守住了。`, 'good');
     else if (held) L(`另外 ${held} 处边界守住了。`);
     // 台风：路障被吹垮一层，街上的丧尸被吹散一些
@@ -1694,9 +1767,10 @@ const Sim = (() => {
       if (w.k === 'rescue') {
         if (v.gear) s.stash.push(v.gear);
         s.surv = s.surv.filter(u => u.id !== v.id); s.gone.push(v.name); s.stats.lost++;
+        grief(s, v, 'died', -20, 0.4, -5, 0.2);
         L(`${v.name}等不下去了，半夜一个人去${nm}找${w.kin}，再也没有回来。`, 'bad');
       } else {
-        v.sulk = 2;
+        v.sulk = 2; remember(s, v, 'wantLost', -10, 0.25);
         L(`${v.name}一直没等到人去${w.k === 'fetch' ? `拿${w.item}` : `收回${nm}`}，整个人消沉了好几天。`, 'bad');
       }
     }
@@ -1705,6 +1779,7 @@ const Sim = (() => {
       const nm = TYPES[tile(s, s.sos.x, s.sos.y).t].name;
       if (s.sos.promised) {
         for (const v of s.surv.filter(v => v.sulk === 0).slice(0, 2)) v.sulk = 1;
+        everyone(s, 'sosBroken', -5, 0.25);
         L(`收音机里再也没有${nm}的声音了。答应过要去的，大家心里都不好受。`, 'bad');
       } else L(`收音机里再也没有${nm}的声音了。`);
       s.sos = null;
@@ -1713,6 +1788,26 @@ const Sim = (() => {
     if (s.surv.filter(v => v.want).length < 2 && rand(s) < 0.12) {
       const cand = s.surv.filter(v => !v.want);
       if (cand.length) { const v = pick(s, cand), w = makeWant(s, v); if (w) L(`${v.name}找你谈了一次：${w.txt}。`, 'info'); }
+    }
+
+    // 人心：崩溃的人夜里可能走掉（一晚最多一个）；有人换了档就提一句
+    { const v = s.surv.find(v => moodLv(s, v) === 0 && rand(s) < 0.15);
+      if (v) {
+        const m = worstMem(s, v);
+        if (v.gear) s.stash.push(v.gear);
+        s.surv = s.surv.filter(u => u.id !== v.id); s.gone.push(v.name); s.stats.lost++; s.stats.broke = (s.stats.broke || 0) + 1;
+        L(`${v.name}${m ? memTxt(m) : '撑不下去了'}，半夜收拾东西走了，铁门没关好。`, 'bad');
+        grief(s, v, 'left', -8, 0.3, 0, 0);
+      } }
+    for (const v of s.surv) {
+      const lv = moodLv(s, v), was = v.ml == null ? 2 : v.ml;
+      v.ml = lv;
+      if (lv === was) continue;
+      const bad = worstMem(s, v), good = worstMem(s, v, true), why = bad ? memTxt(bad) : (moodNow(s, v).filter(x => x[1] < 0)[0] || ['日子太难'])[0];
+      if (lv === 0) L(`${v.name}一整天没开口。${why}，人像被抽空了。再这样下去，怕是留不住。`, 'bad');
+      else if (lv === 1 && was > 1) L(`${v.name}最近闷闷不乐：${why}。干活提不起劲。`, 'bad');
+      else if (lv === 3) L(`${v.name}一早就在顶楼哼歌${good ? `，说${memTxt(good)}` : ''}，干活特别卖力。`, 'good');
+      else if (lv === 2 && was < 2) L(`${v.name}的脸色好了一些。`, 'good');
     }
 
     // 丧尸扩散：只在尸巢附近（和尖叫者旁边）发生。密集区会往外溢，空出来的地块会被重新占据
@@ -2023,7 +2118,7 @@ const Sim = (() => {
     const free = beds(s) - s.surv.length, ratio = s.food / Math.max(1, s.surv.length);
     const th = has(s, 'commune') ? 3 : 4, k = has(s, 'commune') ? 1.6 : 1;
     if (free < 2 || ratio < th) return 0;
-    return Math.min(0.6, (0.12 + 0.05 * (ratio - th)) * k);
+    return Math.min(0.6, (0.12 + 0.05 * (ratio - th)) * k * clamp(0.5 + avgMood(s) / 100, 0.7, 1.3));   // 据点气氛好，投奔的人多
   }
 
   function rollEvent(s) {
@@ -2185,23 +2280,23 @@ const Sim = (() => {
     } else if (id === 'fever2') {
       const v = byId(s, p.id);
       const kill = () => { if (v.gear) s.stash.push(v.gear); s.surv = s.surv.filter(u => u.id !== v.id); s.gone.push(v.name); s.stats.lost++; };
-      if (i === 0) { kill(); L(`你们在顶楼送走了${v.name}。那天晚上没人说话。`, 'bad'); }
+      if (i === 0) { kill(); grief(s, v, 'sentAway', -20, 0, -6, 0.1); L(`你们在顶楼送走了${v.name}。那天晚上没人说话。`, 'bad'); }
       else if (rand(s) < 0.5) {
-        kill();
+        kill(); grief(s, v, 'turned', -18, 0.3, -6, 0.15);
         const g = s.surv.filter(ready);
         const u = g.length ? pick(s, g) : null;
         if (u) u.inj = INJ_DAYS;
         L(`半夜储藏室里传出撞门声。${v.name}已经不是${v.name}了。${u ? `${u.name}在制住${v.name}的时候被咬伤了。` : ''}`, 'bad');
-      } else { v.inj = INJ_DAYS; L(`${v.name}烧了一整夜，天亮时退烧了。没人知道是怎么熬过来的。`, 'good'); }
+      } else { v.inj = INJ_DAYS; remember(s, v, 'saved', 10, 0.2); L(`${v.name}烧了一整夜，天亮时退烧了。没人知道是怎么熬过来的。`, 'good'); }
     } else if (id === 'turn') {
       const v = byId(s, p.id);
       const kill = () => { if (v.gear) s.stash.push(v.gear); s.surv = s.surv.filter(u => u.id !== v.id); s.gone.push(v.name); s.stats.lost++; s.stats.turned = (s.stats.turned || 0) + 1; };
-      if (i === 0) { kill(); L(`你们在顶楼送走了${v.name}。那天晚上没人说话。`, 'bad'); }
-      else if (i === 2) { s.stash.splice(s.stash.indexOf('medkit'), 1); v.inf = 0; v.inj = Math.max(v.inj, 1); L(`最后一个急救包打了进去。中午${v.name}退烧了，还得躺一天。`, 'good'); }
-      else if (i === 3) { v.inf = 0; v.inj = 9; v.fight = Math.max(1, v.fight - 1); v.scav = Math.max(1, v.scav - 1); s.stats.amputate = (s.stats.amputate || 0) + 1; L(`大家按住${v.name}，用酒精烧过的刀把发黑的地方整个截掉了。人保住了，以后干活会吃力一些。`, 'good'); }
-      else if (rand(s) < 0.3) { v.inf = 0; v.inj = INJ_DAYS; L(`${v.name}烧了一整夜，天亮时退烧了。没人知道是怎么熬过来的。`, 'good'); }
+      if (i === 0) { kill(); grief(s, v, 'sentAway', -20, 0, -6, 0.1); L(`你们在顶楼送走了${v.name}。那天晚上没人说话。`, 'bad'); }
+      else if (i === 2) { s.stash.splice(s.stash.indexOf('medkit'), 1); v.inf = 0; v.inj = Math.max(v.inj, 1); remember(s, v, 'saved', 10, 0.2); L(`最后一个急救包打了进去。中午${v.name}退烧了，还得躺一天。`, 'good'); }
+      else if (i === 3) { v.inf = 0; v.inj = 9; v.fight = Math.max(1, v.fight - 1); v.scav = Math.max(1, v.scav - 1); s.stats.amputate = (s.stats.amputate || 0) + 1; remember(s, v, 'amputated', -6, 0.15); grief(s, v, 'friendSaved', 6, 0.3, 0, 0); L(`大家按住${v.name}，用酒精烧过的刀把发黑的地方整个截掉了。人保住了，以后干活会吃力一些。`, 'good'); }
+      else if (rand(s) < 0.3) { v.inf = 0; v.inj = INJ_DAYS; remember(s, v, 'saved', 10, 0.2); L(`${v.name}烧了一整夜，天亮时退烧了。没人知道是怎么熬过来的。`, 'good'); }
       else {
-        kill();
+        kill(); grief(s, v, 'turned', -18, 0.3, -6, 0.15);
         const g = s.surv.filter(ready), u = g.length ? pick(s, g) : null;
         if (u) { u.inj = INJ_DAYS; if (!u.inf && rand(s) < 0.5) { u.inf = INF_DAYS; u.infHeld = false; } }
         L(`半夜储藏室里传出撞门声。${v.name}已经不是${v.name}了。${u ? `${u.name}在制住${v.name}的时候${u.inf ? '被咬了' : '受了伤'}。` : ''}`, 'bad');
@@ -2267,9 +2362,9 @@ const Sim = (() => {
       else L('拾荒者骂了一句，推着车走了。');
     } else if (id === 'feud') {
       const a = byId(s, p.a), b = byId(s, p.b);
-      if (i === 0) { b.sulk = 1; L(`${b.name}摔门回房，今天不出来了。`, 'bad'); }
-      else if (i === 1) { a.sulk = 1; L(`${a.name}摔门回房，今天不出来了。`, 'bad'); }
-      else { s.food -= 3; L('那天晚上大家多吃了一顿，气氛缓和了一些。'); }
+      if (i === 0) { b.sulk = 1; remember(s, b, 'feud', -5, 0.3); L(`${b.name}摔门回房，今天不出来了。`, 'bad'); }
+      else if (i === 1) { a.sulk = 1; remember(s, a, 'feud', -5, 0.3); L(`${a.name}摔门回房，今天不出来了。`, 'bad'); }
+      else { s.food -= 3; everyone(s, 'feast', 5, 0.3); L('那天晚上大家多吃了一顿，气氛缓和了一些。'); }
     }
     for (const v of s.surv) if (!ready(v)) v.task = { k: 'defend' };
     return s;
@@ -2383,6 +2478,7 @@ const Sim = (() => {
       s.tech = { done: {}, prog: {}, cur: null, acc: 0 }; s.items = {};
       stockMap(s, true);
     }
+    if (s.v < 19) for (const v of s.surv) { v.mem = v.mem || []; v.ml = 2; }   // v18 → v19：人心
     if (s.v < 18) {   // v17 → v18：科技多了武备、侦察两支。没收复的楼里补上新的物品和新两支的书
       s.racks = 0; s.gen = false;
       stockMap(s, true, ['engine', 'pump', 'casing', 'fuel', 'scalpel', 'atlas']);
@@ -2392,7 +2488,7 @@ const Sim = (() => {
   }
 
   return {
-    VERSION, MAPS, mapOf, TECHS, ITEMS, BRANCHES, tech, techOpen, haveNeed, setResearch, setGen, powered, fortMax, RACK_MAX, studyPts, plotK, SEASON_LEN, FARM_FOOD, TILL, farmYield, FOODS, CROPS, cropK, plots, ripe, eatSeeds, setCrop, nextSeason, SEED_FOOD, SEED_P, RES, COST, canPay, costTxt, GROVE, LOG, grown, FORTS, DIRS, outEdges, fortAt, shooters, WORKS, COND_MAX, FIX, cond, WX, FLOOD_TXT, KNEE_WX, trustWx, SEASONS, SEASON_ORDER, seasonOf, forecast, selfFed, landing, INF_DAYS, NEST_R, NEST_HORDE, HORDE_BASE, nestHp, nestLv, nestZ, nestHint, FORT_MAX, BAR_MAX, TYPES, TRAITS, RULES, CITIES, ORIGINS, GEAR, equip, useMedkit, bikeReach, nestReach, canGo, craftCost, barMax, foodUse, has, surgeEvery, surgeIn,
+    VERSION, MAPS, mapOf, mood, moodLv, moodNow, memNow, memTxt, MOOD_LV, avgMood, TECHS, ITEMS, BRANCHES, tech, techOpen, haveNeed, setResearch, setGen, powered, fortMax, RACK_MAX, studyPts, plotK, SEASON_LEN, FARM_FOOD, TILL, farmYield, FOODS, CROPS, cropK, plots, ripe, eatSeeds, setCrop, nextSeason, SEED_FOOD, SEED_P, RES, COST, canPay, costTxt, GROVE, LOG, grown, FORTS, DIRS, outEdges, fortAt, shooters, WORKS, COND_MAX, FIX, cond, WX, FLOOD_TXT, KNEE_WX, trustWx, SEASONS, SEASON_ORDER, seasonOf, forecast, selfFed, landing, INF_DAYS, NEST_R, NEST_HORDE, HORDE_BASE, nestHp, nestLv, nestZ, nestHint, FORT_MAX, BAR_MAX, TYPES, TRAITS, RULES, CITIES, ORIGINS, GEAR, equip, useMedkit, bikeReach, nestReach, canGo, craftCost, barMax, foodUse, has, surgeEvery, surgeIn,
     newGame, endDay, setTask, canDo, preview, resolveEvent, eventView,
     nightPlan, tileDefense, horde, beds, income, foodAhead, owned, tile, reachable, frontier, byId, ready, score, eff, tname,
     arrivalChance, serialize, deserialize, SKILL,
