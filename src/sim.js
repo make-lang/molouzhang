@@ -16,7 +16,7 @@ const Sim = (() => {
   const VERSION = 12;
   const W = 8, H = 8;
   const SEASON_LEN = 9;     // 每季 9 天，7 季一年
-  const HORDE_DAY_CAP = 16; // 尸群随天数增长，到这一天封顶
+  const HORDE_DAY_CAP = 20; // 尸群随天数增长，到这一天封顶
   const MULT_MAX = 1.6;     // 尸群倍率上限（巢再多也就这样）
   const FARM_FOOD = 3;      // 废墟、拆过的楼开垦成菜园每天的收成（再乘季节倍率）；完好的楼只能在院子里种，收成 1
   const TILL = 4;           // 开垦要几点工
@@ -260,7 +260,7 @@ const Sim = (() => {
   const surgeEvery = s => s && s.city === 'moon' ? 5 : 7;
   const surgeIn = s => { const p = surgeEvery(s); return p - (s.day % p || p); };   // 0 = 今晚
   function horde(day, s) {
-    let lo = 1 + 0.55 * Math.min(day, HORDE_DAY_CAP), hi = lo + 3;   // 到第 22 天封顶
+    let lo = 1 + 0.55 * Math.min(day, HORDE_DAY_CAP), hi = lo + 3;   // 到第 20 天封顶
     const surge = day % surgeEvery(s) === 0;
     const [k, add] = s && s.city === 'moon' ? [1.3, 1.5] : [1.4, 2];
     if (surge) { lo = lo * k + add; hi = hi * k + add; }
