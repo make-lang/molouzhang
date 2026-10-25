@@ -12,7 +12,7 @@ for (let i = 0; i < 400; i++) {
       // 前 200 局选第一个能选的，后 200 局轮流选不同的选项，覆盖事件链的各个分支
       const ch = Sim.eventView(s).choices, ok = ch.map((c, j) => c.ok ? j : -1).filter(j => j >= 0);
       const j = i < 200 ? ok[0] : ok[(n++ * 7 + i) % ok.length];
-      seen[`${s.event.id}#${j}`] = 1;
+      seen[`${s.event.id}${s.event.id === "chat" ? ":" + s.event.p.t : ""}#${j}`] = 1;
       s = Sim.resolveEvent(s, j); continue;
     }
     // 装备：仓库里的东西轮流发下去，伤员用急救包，偶尔有人去打造
@@ -25,7 +25,8 @@ for (let i = 0; i < 400; i++) {
     // 科技：没在研究就挑第一项能研究的
     if (!s.tech.cur) { const k = Object.keys(Sim.TECHS).find(k => Sim.techOpen(s, k)); if (k) s = Sim.setResearch(s, k); }
     if (s.day % 10 === 5) s = Sim.setGen(s, !s.gen);
-    if (s.day % 8 === 3) s = Sim.setParty(s, true);   // 发电机时开时关
+    if (s.day % 8 === 3) s = Sim.setParty(s, true);
+    if (s.surv.length) s = Sim.chat(s, s.surv[(s.day + i) % s.surv.length].id);   // 楼长每天找一个人聊   // 发电机时开时关
     // 随机给几个人派活，覆盖各种任务分支
     for (const v of s.surv) {
       if ((v.id + s.day) % 7 === 3) { s = Sim.setTask(s, v.id, { k: 'study' }); continue; }
@@ -182,3 +183,14 @@ console.log(`覆盖到的事件分支 ${Object.keys(seen).length} 个：${Object
   if (!(Sim.mood(ps, Sim.byId(ps, b.id)) > m0)) throw new Error('谈心、聚餐没拉起人心');
   if (Sim.canParty(ps)) throw new Error('聚餐没有间隔');
   console.log(`聚餐、谈心测试通过：人心 ${m0} → ${Sim.mood(ps, Sim.byId(ps, b.id))}`); }
+// 楼长找人聊：想念走了的人 → 办告别，所有记着的人坏记忆减半
+{ let cs = Sim.newGame(41, { season: 'spring' });
+  while (cs.event) cs = first(cs);
+  cs.mat = 5; const [a, b] = cs.surv;
+  for (const v of [a, b]) v.mem.push({ k: 'sentAway', d: cs.day, w: -20, f: 0, who: '志明' });
+  cs = Sim.chat(cs, a.id);
+  if (!cs.event || cs.event.p.t !== 'grief') throw new Error('话题没挑对：' + (cs.event && cs.event.p.t));
+  const mb = Sim.mood(cs, Sim.byId(cs, b.id)); cs = Sim.resolveEvent(cs, 1);
+  if (!(Sim.mood(cs, Sim.byId(cs, b.id)) > mb) || cs.mat !== 3) throw new Error('告别没起作用');
+  if (Sim.canChat(cs, b.id)) throw new Error('一天能聊两次');
+  console.log(`找人聊测试通过：告别后 ${mb} → ${Sim.mood(cs, Sim.byId(cs, b.id))}`); }

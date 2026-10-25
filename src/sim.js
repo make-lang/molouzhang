@@ -538,7 +538,36 @@ const Sim = (() => {
     rested:      '好好歇了一天',
     talked:      '跟{who}聊了很久',
     reconciled:  '跟{who}把话说开了',
+    chat:        '跟你聊过，心里好受些',
+    backed:      '你站在他这边',
+    slighted:    '你偏袒{who}',
+    brushed:     '跟你说心事，你没当回事',
+    shared:      '你把自己那份饭让给了他',
+    farewell:    '大家给{who}办了告别',
   };
+  const GRIEF = ['died', 'sentAway', 'turned', 'left'];
+  // 楼长找人聊：话题看他心里最重的那件事（被咬了 > 想念走了的人 > 牵挂 > 跟人有过节 > 楼被拆 > 吃不好 > 别的烦心事 > 闲聊）
+  function chatTopic(s, v) {
+    if (v.inf > 0) return { t: 'bitten' };
+    const m = worstMem(s, v), heavy = m && memNow(s, m) <= -6;
+    if (heavy && GRIEF.includes(m.k)) return { t: 'grief', k: m.k, who: m.who };
+    if (v.want) return { t: 'want' };
+    const f = s.rel.find(r => r[2] === 'feud' && (r[0] === v.id || r[1] === v.id) && byId(s, r[0] === v.id ? r[1] : r[0]));
+    if (f) return { t: 'feud', u: f[0] === v.id ? f[1] : f[0] };
+    if (heavy && m.k === 'stripped') return { t: 'stripped', at: m.at };
+    const sit = moodNow(s, v).filter(x => x[1] < 0).sort((a, b) => a[1] - b[1])[0];
+    if (sit && /饿|同一样|配给/.test(sit[0])) return { t: 'food' };
+    if (heavy) return { t: 'down', txt: memTxt(m) };
+    return { t: 'idle' };
+  }
+  // 每天能找一个人聊一次（不占人手），用清晨事件的对话框
+  const canChat = (s, id) => !s.over && !s.event && !(s.chatDay >= s.day) && !!byId(s, id);
+  function chat(s0, id) {
+    if (!canChat(s0, id)) return s0;
+    const s = clone(s0), v = byId(s, id);
+    s.chatDay = s.day; s.event = { id: 'chat', p: { id, ...chatTopic(s, v) } };
+    return s;
+  }
   const PARTY_GAP = 5;   // 两次聚餐至少隔几天
   const partyCost = s => s.surv.length;   // 聚餐多吃一顿：每人 1 份
   const memNow = (s, m) => m.w > 0 ? Math.max(0, m.w - m.f * (s.day - m.d)) : Math.min(0, m.w + m.f * (s.day - m.d));
@@ -1824,7 +1853,7 @@ const Sim = (() => {
         grief(s, v, 'died', -20, 0.4, -5, 0.2);
         L(`${v.name}等不下去了，半夜一个人去${nm}找${w.kin}，再也没有回来。`, 'bad');
       } else {
-        v.sulk = 2; remember(s, v, 'wantLost', -10, 0.25);
+        v.sulk = 2; remember(s, v, 'wantLost', w.pledged ? -16 : -10, 0.25);
         L(`${v.name}一直没等到人去${w.k === 'fetch' ? `拿${w.item}` : `收回${nm}`}，整个人消沉了好几天。`, 'bad');
       }
     }
@@ -2014,6 +2043,54 @@ const Sim = (() => {
         { label: '不换', note: '', ok: true },
       ],
     }),
+    chat: (s, p) => {
+      const v = byId(s, p.id), n = v.name, who = p.who, u = p.u != null && byId(s, p.u);
+      const title = `和${n}聊聊`;
+      if (p.t === 'bitten') return { title, text: `${n}坐在角落，一直盯着手臂上发黑的伤口。「楼长，我是不是……」`, choices: [
+        { label: '「我们会想办法的。」', note: '人心 +6', ok: true },
+        { label: '把急救包给他用上', note: s.stash.includes('medkit') ? '咬伤马上治好，用掉一个急救包' : '仓库里没有急救包', ok: s.stash.includes('medkit') },
+        { label: '陪他坐到天黑', note: '人心 +10，但你明天抽不出空再找人聊', ok: true },
+      ] };
+      if (p.t === 'grief') {
+        const text = { sentAway: `${n}在顶楼站了很久。「${who}走的那天，你连门都没让我送。」`, died: `${n}把${who}的东西收进一个纸箱，一直没打开。`, turned: `${n}说他还会梦到那天晚上储藏室里的声音。「那还是${who}吗？」`, left: `${n}说${who}走之前跟他打过招呼，他没拦。` }[p.k];
+        const done = (s.farewell || []).includes(who);
+        return { title, text, choices: [
+          { label: `陪他聊聊${who}`, note: '人心 +10', ok: true },
+          { label: `给${who}办个简单的告别`, note: done ? '已经办过了' : '-2 木料；所有记着这件事的人都好受一些', ok: !done && s.mat >= 2 },
+          { label: '「活着的人得往前看。」', note: '有的人听得进去，有的人听不进去', ok: true },
+        ] };
+      }
+      if (p.t === 'want') return { title, text: `${n}又提起来：${v.want.txt}。`, choices: [
+        { label: '答应这几天就派人去', note: '期限 +3 天，人心 +6；到期没办成，他会更失望', ok: !v.want.pledged },
+        { label: '说实话：现在抽不出人', note: '人心 +2', ok: true },
+        { label: '劝他放下', note: '牵挂没了，人心 -6', ok: true },
+      ] };
+      if (p.t === 'feud') return { title, text: `${n}又在抱怨${u.name}：「他凭什么……」`, choices: [
+        { label: `劝他跟${u.name}和好`, note: '四成机会说开', ok: true },
+        { label: '站在他这边', note: `他人心 +8，${u.name}会记恨你偏心`, ok: true },
+        { label: '各打五十大板', note: '谁也不得罪，也谁都没好受', ok: true },
+      ] };
+      if (p.t === 'stripped') return { title, text: `${n}还在为${p.at}被拆的事生气。「那是我们一条街的念想。」`, choices: [
+        { label: '跟他道歉', note: '人心 +8', ok: true },
+        { label: '解释：拆了才有材料守门', note: '会盖房子的人听得进去', ok: true },
+        { label: '「拆都拆了。」', note: '人心 -4', ok: true },
+      ] };
+      if (p.t === 'food') return { title, text: `${n}把碗推到一边：「又是这个。」`, choices: [
+        { label: '把你那份让给他', note: s.food >= 1 ? '-1 食物，人心 +8' : '没有存粮了', ok: s.food >= 1 },
+        { label: '答应过几天办一桌', note: '人心 +4', ok: true },
+        { label: '「大家都一样，忍一忍。」', note: '人心 +1', ok: true },
+      ] };
+      if (p.t === 'down') return { title, text: `${n}这几天话很少。问起来，他说${p.txt}。`, choices: [
+        { label: '听他说完', note: '人心 +8', ok: true },
+        { label: '让他放一天假', note: '人心 +12，他今天不干活', ok: true },
+        { label: '「忙起来就不想了。」', note: '人心 +2', ok: true },
+      ] };
+      return { title, text: `${n}在顶楼抽烟，看着远处的街。`, choices: [
+        { label: '聊聊以前的日子', note: '人心 +5', ok: true },
+        { label: '问他有没有想做的事', note: v.want ? '他已经有心事了' : '他也许会说出一件心事（牵挂）', ok: !v.want },
+        { label: '问他看明天天气怎么样', note: '顺便摸摸他看天准不准', ok: true },
+      ] };
+    },
     feud: (s, p) => {
       const a = byId(s, p.a).name, b = byId(s, p.b).name;
       return {
@@ -2414,6 +2491,48 @@ const Sim = (() => {
       if (i === 0) { s.mat -= 5; s.food += 6; L('用 5 木料换到了 6 份食物。'); }
       else if (i === 1) { s.food -= 5; s.mat += 5; L('用 5 份食物换到了 5 木料。'); }
       else L('拾荒者骂了一句，推着车走了。');
+    } else if (id === 'chat') {
+      const v = byId(s, p.id), n = v.name, ok = w => remember(s, v, 'chat', w, 0.5), brush = w => remember(s, v, 'brushed', w, 0.3);
+      if (p.t === 'bitten') {
+        if (i === 0) { ok(6); L(`你跟${n}说会想办法。他点点头，没再问。`); }
+        else if (i === 1) { s.stash.splice(s.stash.indexOf('medkit'), 1); v.inf = 0; remember(s, v, 'saved', 10, 0.2); L(`你把急救包拆开给${n}用上。傍晚他的伤口不再发黑了。`, 'good'); }
+        else { ok(10); s.chatDay = s.day + 1; L(`你陪${n}在角落坐到天黑，谁也没说几句话。`); }
+      } else if (p.t === 'grief') {
+        if (i === 0) { ok(10); L(`${n}说了很多${p.who}以前的事，说着说着笑了一下。`, 'good'); }
+        else if (i === 1) {
+          s.mat -= 2; (s.farewell = s.farewell || []).push(p.who);
+          for (const u of s.surv) { let had = false; for (const m of u.mem || []) if (GRIEF.includes(m.k) && m.who === p.who) { m.w = Math.round(m.w / 2); if (!m.f) m.f = 0.2; had = true; } if (had) remember(s, u, 'farewell', 4, 0.2, { who: p.who }); }
+          L(`傍晚大家在顶楼给${p.who}钉了一块木牌，${n}念了几句。那天晚上楼里比平时安静，但不是难受的那种安静。`, 'good');
+        } else if (v.fight >= 4 || tr(v, 'lucky') || tr(v, 'hothead')) { ok(6); L(`${n}沉默了一会儿：「你说得对。」第二天他起得比谁都早。`, 'good'); }
+        else { brush(-5); L(`${n}看了你一眼，转身下楼了。`, 'bad'); }
+      } else if (p.t === 'want') {
+        if (i === 0) { v.want.until += 3; v.want.pledged = true; ok(6); L(`你答应${n}这几天就派人去。他眼睛亮了一下。`, 'good'); }
+        else if (i === 1) { ok(2); L(`${n}叹口气：「至少你没骗我。」`); }
+        else { v.want = null; brush(-6); L(`${n}说好，就不再提了。之后他很少主动找你说话。`, 'bad'); }
+      } else if (p.t === 'feud') {
+        const u = byId(s, p.u), k = s.rel.findIndex(r => r[2] === 'feud' && ((r[0] === v.id && r[1] === u.id) || (r[0] === u.id && r[1] === v.id)));
+        if (i === 0) {
+          if (k >= 0 && rand(s) < 0.4) { s.rel.splice(k, 1); remember(s, v, 'reconciled', 8, 0.2, { who: u.name }); remember(s, u, 'reconciled', 8, 0.2, { who: n }); L(`${n}嘟囔了半天，晚饭时还是端着碗坐到了${u.name}旁边。过节算是过去了。`, 'good'); }
+          else { ok(2); L(`${n}说考虑考虑。看样子还得再等等。`); }
+        } else if (i === 1) { remember(s, v, 'backed', 8, 0.3); remember(s, u, 'slighted', -8, 0.3, { who: n }); L(`你站在${n}这边。${u.name}知道以后，好几天没正眼看你。`, 'bad'); }
+        else L(`你两边各说了几句。${n}没再说什么。`);
+      } else if (p.t === 'stripped') {
+        if (i === 0) { ok(8); L(`你跟${n}道了歉。他摆摆手：「算了，换了我也一样。」`, 'good'); }
+        else if (i === 1) { if (v.build >= 3) { ok(5); L(`${n}自己也会盖房子，听完点了点头。`, 'good'); } else { ok(1); L(`${n}听完没说话。`); } }
+        else { brush(-4); L(`${n}冷笑了一声。`, 'bad'); }
+      } else if (p.t === 'food') {
+        if (i === 0) { s.food -= 1; remember(s, v, 'shared', 8, 0.4); L(`你把自己那份推给${n}。他推回来两次，最后还是吃了。`, 'good'); }
+        else if (i === 1) { ok(4); L(`你说过几天办一桌。${n}说那他要吃丝瓜炒蛋。`); }
+        else { ok(1); L(`${n}点点头，把碗端了回去。`); }
+      } else if (p.t === 'down') {
+        if (i === 0) { ok(8); L(`${n}断断续续说了一个下午。说完他说，好久没人听他讲这么多了。`, 'good'); }
+        else if (i === 1) { remember(s, v, 'rested', 12, 1); v.busy = true; v.task = { k: 'defend' }; L(`你让${n}今天什么都别管。他在顶楼睡了一下午。`, 'good'); }
+        else { ok(2); L(`${n}说好。`); }
+      } else {
+        if (i === 0) { ok(5); L(`${n}说起以前巷口那家豆花店，老板会多给一勺糖水。`, 'good'); }
+        else if (i === 1) { ok(3); const w = makeWant(s, v); L(w ? `${n}想了很久，说：${w.txt}。` : `${n}想了想，说现在能活着就好。`, w ? 'info' : 'good'); }
+        else { ok(2); L([`${n}挠挠头：「老实说，我看天都是瞎猜的。」`, `${n}说大概看得出个七八成，太远的就不敢讲了。`, `${n}说他看天很准，以前在乡下看云就知道要不要收衣服。`][v.sky == null ? 1 : v.sky]); }
+      }
     } else if (id === 'feud') {
       const a = byId(s, p.a), b = byId(s, p.b);
       if (i === 0) { b.sulk = 1; remember(s, b, 'feud', -5, 0.3); L(`${b.name}摔门回房，今天不出来了。`, 'bad'); }
@@ -2542,7 +2661,7 @@ const Sim = (() => {
   }
 
   return {
-    VERSION, MAPS, mapOf, setParty, canParty, partyCost, PARTY_GAP, mood, moodLv, moodNow, memNow, memTxt, MOOD_LV, avgMood, TECHS, ITEMS, BRANCHES, tech, techOpen, haveNeed, setResearch, setGen, powered, fortMax, RACK_MAX, studyPts, plotK, SEASON_LEN, FARM_FOOD, TILL, farmYield, FOODS, CROPS, cropK, plots, ripe, eatSeeds, setCrop, nextSeason, SEED_FOOD, SEED_P, RES, COST, canPay, costTxt, GROVE, LOG, grown, FORTS, DIRS, outEdges, fortAt, shooters, WORKS, COND_MAX, FIX, cond, WX, FLOOD_TXT, KNEE_WX, trustWx, SEASONS, SEASON_ORDER, seasonOf, forecast, selfFed, landing, INF_DAYS, NEST_R, NEST_HORDE, HORDE_BASE, nestHp, nestLv, nestZ, nestHint, FORT_MAX, BAR_MAX, TYPES, TRAITS, RULES, CITIES, ORIGINS, GEAR, equip, useMedkit, bikeReach, nestReach, canGo, craftCost, barMax, foodUse, has, surgeEvery, surgeIn,
+    VERSION, MAPS, mapOf, chat, canChat, setParty, canParty, partyCost, PARTY_GAP, mood, moodLv, moodNow, memNow, memTxt, MOOD_LV, avgMood, TECHS, ITEMS, BRANCHES, tech, techOpen, haveNeed, setResearch, setGen, powered, fortMax, RACK_MAX, studyPts, plotK, SEASON_LEN, FARM_FOOD, TILL, farmYield, FOODS, CROPS, cropK, plots, ripe, eatSeeds, setCrop, nextSeason, SEED_FOOD, SEED_P, RES, COST, canPay, costTxt, GROVE, LOG, grown, FORTS, DIRS, outEdges, fortAt, shooters, WORKS, COND_MAX, FIX, cond, WX, FLOOD_TXT, KNEE_WX, trustWx, SEASONS, SEASON_ORDER, seasonOf, forecast, selfFed, landing, INF_DAYS, NEST_R, NEST_HORDE, HORDE_BASE, nestHp, nestLv, nestZ, nestHint, FORT_MAX, BAR_MAX, TYPES, TRAITS, RULES, CITIES, ORIGINS, GEAR, equip, useMedkit, bikeReach, nestReach, canGo, craftCost, barMax, foodUse, has, surgeEvery, surgeIn,
     newGame, endDay, setTask, canDo, preview, resolveEvent, eventView,
     nightPlan, tileDefense, horde, beds, income, foodAhead, owned, tile, reachable, frontier, byId, ready, score, eff, tname,
     arrivalChance, serialize, deserialize, SKILL,

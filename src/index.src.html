@@ -965,7 +965,8 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
   function moodHtml(v) {
     const lv = Sim.moodLv(S, v), eff = ['干活、守夜 -1，不肯去端巢和丧尸多的地方；夜里可能一走了之', '干活、守夜 -1，不肯去端巢和丧尸多的地方', '', '白天干活多出一把力'][lv];
     const rows = moodWhy(v).slice(0, 4).map(([t, w, d]) => `<span class="${w > 0 ? 'c-good' : 'c-red'}">${w > 0 ? '+' : '-'}</span> ${t}${d ? `<span class="dim">（第 ${d} 天）</span>` : ''}`);
-    return `<div class="box ${lv <= 1 ? 'fail' : lv === 3 ? 'safe' : ''}"><span class="${['c-red', 'c-amber', '', 'c-good'][lv]}">${v.name} · ${Sim.MOOD_LV[lv].name}</span>${eff ? `<span class="dim">：${eff}</span>` : ''}${rows.length ? '<br>' + rows.join('<br>') : '<br><span class="dim">心里没什么事。</span>'}</div>`;
+    const can = Sim.canChat(S, v.id);
+    return `<div class="box ${lv <= 1 ? 'fail' : lv === 3 ? 'safe' : ''}"><div class="row2"><span class="${['c-red', 'c-amber', '', 'c-good'][lv]}">${v.name} · ${Sim.MOOD_LV[lv].name}</span><button class="btn" data-chat="${v.id}" ${can ? '' : 'disabled'} title="${can ? '楼长每天能找一个人聊一次，不占人手' : '今天已经找人聊过了'}">找他聊聊</button></div>${eff ? `<span class="dim">${eff}</span><br>` : ''}${rows.length ? rows.join('<br>') : '<span class="dim">心里没什么事。</span>'}</div>`;
   }
 
   function renderPeople() {
@@ -1051,6 +1052,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     body.scrollTop = 0;
     body.querySelectorAll('[data-task]').forEach(b => b.onclick = () => commit(Sim.setTask(S, selSurv, ['study', 'talk', 'rest'].includes(b.dataset.task) ? { k: b.dataset.task } : { k: b.dataset.task, x: selTile.x, y: selTile.y })));
     body.querySelectorAll('[data-research]').forEach(b => b.onclick = () => commit(Sim.setResearch(S, b.dataset.research)));
+    body.querySelectorAll('[data-chat]').forEach(b => b.onclick = () => commit(Sim.chat(S, +b.dataset.chat)));
     body.querySelectorAll('[data-party]').forEach(b => b.onclick = () => commit(Sim.setParty(S, b.dataset.party === '1')));
     body.querySelectorAll('[data-gen]').forEach(b => b.onclick = () => commit(Sim.setGen(S, b.dataset.gen === '1')));
     body.querySelectorAll('[data-study]').forEach(b => b.onclick = () => commit(Sim.setTask(S, selSurv, { k: 'study' })));
@@ -1357,7 +1359,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
       <p class="dim">停电第三天，你被推举为这栋老公寓的楼长。电台说救援一个月内会到，前提是你们撑得到那时候。</p>
       <ol class="scroll" style="max-height:330px">
         <li>在左边选一个住户，再点地图上的街区，右边会列出能做的事：搜刮、清理丧尸、收复、拆除、驻守、加固。</li>
-        <li>人心：每个人记着对自己有分量的事（旧识被送走、心愿了了、一起撑过尸潮……），再加上吃得好不好、睡不睡得下。名字发绿是振作，白天干活多出一把力；发黄是低落，干活、守夜都差一截，也不肯去端巢；发红是崩溃，夜里可能一走了之。选中住户能看到他心里记着什么。坏事大多会慢慢淡掉。拉人心的办法：在据点办聚餐（花粮食，桌上越杂越好）、派人谈心（陪心情最差的人聊一天，有过节的可能说开）、让人歇一天；收复公园、宫庙，大家平时也会好过一点。兑现牵挂、别把被咬的人送走，也都算数。</li>
+        <li>人心：每个人记着对自己有分量的事（旧识被送走、心愿了了、一起撑过尸潮……），再加上吃得好不好、睡不睡得下。名字发绿是振作，白天干活多出一把力；发黄是低落，干活、守夜都差一截，也不肯去端巢；发红是崩溃，夜里可能一走了之。选中住户能看到他心里记着什么。坏事大多会慢慢淡掉。拉人心的办法：在据点办聚餐（花粮食，桌上越杂越好）、派人谈心（陪心情最差的人聊一天，有过节的可能说开），或者你自己找人聊（选中住户点“找他聊聊”，每天一次，话题看他心里最重的事，怎么回由你选）、让人歇一天；收复公园、宫庙，大家平时也会好过一点。兑现牵挂、别把被咬的人送走，也都算数。</li>
         <li>研究（“研究”分页）：派人在据点研究，攒研究点学会科技，夜里照样守据点。科技分农耕、营造、医护、武备、侦察五支，有的要先收复某栋楼，有的研究完要用掉一样关键物品（几样里任选一样，地块面板会写哪里翻得到）。翻到书、来了懂行的人（护理师、装潢师傅、菜贩、退休警察、外送员……）也会直接给进度，运气好翻到整本手册就直接学会。</li>
         <li>开新局时可以选街区大小：小街区 8×8，节奏快；大街区 12×12，东西多、出路多、巢也多，一局更长。大街区一次只看得到一部分，按住地图拖动，或者点右下角的小地图移过去。</li>
         <li>夜里尸群会从每块和未收复街区接壤的地盘进攻，边界越长来得越多，地图边缘不会来丧尸。底栏和“今晚”分页会提前标出守不住的地方，地图上会闪红。</li>
@@ -1413,7 +1415,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     }
     if (S.event) {
       const ev = Sim.eventView(S);
-      return dlg(`<h2>${ic('sun')}第 ${S.day} 天 · 清晨</h2><p>${ev.text}</p><div class="choices">${ev.choices.map((c, i) =>
+      return dlg(`<h2>${ic('sun')}${ev.title || `第 ${S.day} 天 · 清晨`}</h2><p>${ev.text}</p><div class="choices">${ev.choices.map((c, i) =>
         `<button class="btn" data-c="${i}" ${c.ok ? '' : 'disabled'}>${c.label}${c.note ? `<small>${c.note}${c.ok ? '' : '（条件不够）'}</small>` : ''}</button>`).join('')}</div>`,
         () => $('dlg').querySelectorAll('[data-c]').forEach(b => b.onclick = () => commit(Sim.resolveEvent(S, +b.dataset.c))));
     }
