@@ -258,7 +258,7 @@ const Sim = (() => {
   // 材料：木料（s.mat，堆路障、取暖、做木器）、废铁（s.iron，焊据点的铁窗、打造铁器）、化学品（s.chem，做急救包，以后做火药）。
   // 以后加材料就在这里加一项，数量存在 s[key]；地块上的存货 t.mat 是没分拣的杂物，搜刮、拆下来时按 MIX 分成几种
   const RES = { mat: { name: '木料' }, iron: { name: '废铁' }, chem: { name: '化学品' }, parts: { name: '零件' }, powder: { name: '火药' }, arrow: { name: '箭' }, ammo: { name: '子弹' } };
-  const MIX = { garage: { iron: 0.6 }, chemplant: { chem: 0.5, iron: 0.2 }, gas: { chem: 0.4, iron: 0.2 }, hardware: { iron: 0.5, chem: 0.2 }, mart: { iron: 0.35, chem: 0.1 }, hospital: { chem: 0.45, iron: 0.15 }, police: { iron: 0.5 }, ruin: { iron: 0.4 }, school: { iron: 0.25 }, market: { iron: 0.3 }, house: { iron: 0.15, chem: 0.05 } };
+  const MIX = { garage: { iron: 0.75 }, chemplant: { chem: 0.5, iron: 0.25 }, gas: { chem: 0.4, iron: 0.25 }, hardware: { iron: 0.6, chem: 0.2 }, mart: { iron: 0.45, chem: 0.1 }, hospital: { chem: 0.45, iron: 0.2 }, police: { iron: 0.6 }, ruin: { iron: 0.5 }, school: { iron: 0.3 }, market: { iron: 0.4 }, house: { iron: 0.2, chem: 0.05 } };
   const COST = { base: { mat: 1, iron: 1 }, bar: { mat: 2 } };   // 加固据点（焊铁窗）、堆路障（沙包木板）
   // 边上的工事：每块地朝外的每条边能造一样（s.forts，key 是 "x,y,d"，d 是 DIRS 的下标，值是 { k, sprung }），派一个人花一天、付材料造好，
   // 造新的就把旧的拆掉。路障 t.bar 和据点工事 s.fort 照旧是整块地的墙。地丢了，那块地上的工事也没了
@@ -333,7 +333,7 @@ const Sim = (() => {
     const left = { arrow: s.arrow || 0, ammo: s.ammo || 0 }, out = new Map();
     for (const v of s.surv) {
       const G = v.gear && GEAR[v.gear];
-      if (!G || !G.shot || !ready(v) || !(v.task.k === 'defend' || v.task.k === 'craft') || left[G.shot] < G.per) continue;
+      if (!G || !G.shot || !ready(v) || !['defend', 'craft', 'build'].includes(v.task.k) || left[G.shot] < G.per) continue;
       left[G.shot] -= G.per; out.set(v.id, G.atk);
     }
     return out;
@@ -453,6 +453,36 @@ const Sim = (() => {
     s.log.push({ d: s.day, tone: 'info', msg: `把一包${FOODS[k].name}种子煮了，+${SEED_FOOD} 食物。` });
     return s;
   }
+  // 粮食预报：不派人搜刮、不添菜园，照现在的存粮、种着的作物、仓库里的种子往后推 H 天（换季自动换种、冬天吃得多、放坏的扔掉，天气不算）。
+  // short 是第几天晚上开始不够吃（0 = 今晚，null = H 天内都够），low 是存粮最低剩多少，bare 是这段时间里最多有几块菜园没种子空着
+  function foodAhead(s, H = 18) {
+    let pantry = (s.pantry || []).map(b => ({ ...b })), seeds = { ...(s.seeds || {}) }, short = null, low = s.food, bare = 0;
+    const P = plots(s).map(t => ({ t, crop: t.crop ? { ...t.crop } : null, acc: t.acc || 0 }));
+    const n = s.surv.length + s.surv.filter(v => tr(v, 'bigeater')).length + (s.dog ? 1 : 0), u = has(s, 'ration') ? Math.ceil(n * 0.7) : n;
+    for (let d = 0; d < H; d++) {
+      const day = s.day + d, se = s.start ? seasonOf(s, day) : 'spring', nx = nextSeason(s, se);
+      if (d > 0) for (const p of P) {   // 跟 plant 一样：过季的枯掉，空着的换种
+        if (p.crop && cropK(p.crop.k, se) === 0 && !(p.t.sow === p.crop.k && cropK(p.crop.k, nx) > 0)) p.crop = null;
+        if (p.crop) continue;
+        const k = p.t.sow && (seeds[p.t.sow] || 0) > 0 && (cropK(p.t.sow, se) > 0 || cropK(p.t.sow, nx) > 0) ? p.t.sow
+          : Object.keys(CROPS).filter(k => (seeds[k] || 0) > 0 && cropK(k, se) > 0).sort((a, b) => cropK(b, se) - cropK(a, se) || FOODS[b].life - FOODS[a].life)[0];
+        if (k) { seeds[k]--; p.crop = { k, d: day }; p.acc = 0; }
+      }
+      bare = Math.max(bare, P.filter(p => !p.crop).length);
+      const add = (k, m) => { if (m > 0) pantry.push({ k, n: m, exp: FOODS[k].life ? day + FOODS[k].life : 0 }); };
+      for (const p of P) if (p.crop && day - p.crop.d >= CROPS[p.crop.k].grow && cropK(p.crop.k, se)) { p.acc += farmYield(p.t) * cropK(p.crop.k, se); const m = Math.floor(p.acc); p.acc -= m; add(p.crop.k, m); }
+      if (has(s, 'rooftop')) add('greens', Math.floor(2 * cropK('greens', se)));
+      for (const t of owned(s)) if (t.t !== 'park' && eff(t).food) add('rice', eff(t).food);
+      let need = se === 'winter' ? Math.ceil(u * 1.2) : u;
+      pantry.sort((a, b) => (a.exp || 1e9) - (b.exp || 1e9));
+      for (const b of pantry) { const m = Math.min(need, b.n); b.n -= m; need -= m; }
+      pantry = pantry.filter(b => b.n > 0 && !(b.exp && b.exp <= day));
+      const left = pantry.reduce((a, b) => a + b.n, 0);
+      if (need > 0 && short == null) short = d;
+      low = Math.min(low, need > 0 ? -need : left);
+    }
+    return { short, low, bare, H };
+  }
   const hasHospital = s => owned(s).some(t => eff(t).heal);
 
   // 尸群总量：随天数增长，每 7 天一次尸潮（尸潮频繁的城市每 5 天一次，但规模小一些）
@@ -467,7 +497,8 @@ const Sim = (() => {
   }
 
   // 守军所在地块：留守（不带坐标）= 据点。在据点打造装备的人白天干活，夜里也守着据点
-  const guardAt = (v, x, y, s) => (v.task.k === 'defend' && (v.task.x == null ? isBase(tile(s, x, y)) : v.task.x === x && v.task.y === y)) || (v.task.k === 'craft' && isBase(tile(s, x, y)));
+  // 造工事的人造完就留在那块地守夜，预报里也要算上
+  const guardAt = (v, x, y, s) => (v.task.k === 'defend' && (v.task.x == null ? isBase(tile(s, x, y)) : v.task.x === x && v.task.y === y)) || (v.task.k === 'craft' && isBase(tile(s, x, y))) || (v.task.k === 'build' && v.task.x === x && v.task.y === y);
 
   function groupKey(v) {
     const t = v.task;
@@ -734,7 +765,7 @@ const Sim = (() => {
   function newGame(seed, opt = {}) {
     seed = (seed == null ? Math.floor(Math.random() * 1e9) : seed) | 0;
     const s = {
-      v: VERSION, seed, rng: seed, day: 1, food: 21, mat: 6, iron: 4, chem: 0, parts: 0, powder: 0, arrow: 0, ammo: 0, forts: {}, fort: 2, wall: 12, wallMax: 12,
+      v: VERSION, seed, rng: seed, day: 1, food: 21, mat: 6, iron: 6, chem: 0, parts: 0, powder: 0, arrow: 0, ammo: 0, forts: {}, fort: 2, wall: 12, wallMax: 12,
       tiles: [], surv: [], gone: [], nextId: 1, rel: [], log: [], over: null, rescueDay: null, event: null, rules: [], brute: false,
       city: null, origin: null, queue: [], camp: null, sos: null, dog: false, stash: [], season: null, start: null, wxNow: null, wx: null, radio: false, winterIn: false,
       pantry: [{ k: 'can', n: 9, exp: 0 }, { k: 'rice', n: 12, exp: 1 + FOODS.rice.life }], seeds: { greens: 2, potato: 2, radish: 1, melon: 1 }, diet: [],
@@ -2098,7 +2129,7 @@ const Sim = (() => {
   return {
     VERSION, W, H, SEASON_LEN, FARM_FOOD, TILL, farmYield, FOODS, CROPS, cropK, plots, ripe, eatSeeds, setCrop, nextSeason, SEED_FOOD, SEED_P, RES, COST, canPay, costTxt, GROVE, LOG, grown, FORTS, DIRS, outEdges, fortAt, shooters, WORKS, COND_MAX, FIX, cond, WX, FLOOD_TXT, KNEE_WX, trustWx, SEASONS, SEASON_ORDER, seasonOf, forecast, selfFed, landing, INF_DAYS, NEST_R, NEST_HORDE, HORDE_BASE, nestHp, nestLv, nestZ, nestHint, FORT_MAX, BAR_MAX, TYPES, TRAITS, RULES, CITIES, ORIGINS, GEAR, equip, useMedkit, bikeReach, nestReach, canGo, craftCost, barMax, foodUse, has, surgeEvery, surgeIn,
     newGame, endDay, setTask, canDo, preview, resolveEvent, eventView,
-    nightPlan, tileDefense, horde, beds, income, owned, tile, reachable, frontier, byId, ready, score, eff, tname,
+    nightPlan, tileDefense, horde, beds, income, foodAhead, owned, tile, reachable, frontier, byId, ready, score, eff, tname,
     arrivalChance, serialize, deserialize, SKILL,
   };
 })();

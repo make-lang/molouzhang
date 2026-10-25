@@ -850,12 +850,12 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
   }
 
   function renderHud() {
-    const inc = Sim.income(S), net = inc.food - Sim.foodUse(S), beds = Sim.beds(S);
+    const inc = Sim.income(S), net = inc.food - Sim.foodUse(S), beds = Sim.beds(S), fa = Sim.foodAhead(S);
     const sd = (S.day - 1) % Sim.SEASON_LEN + 1;
     const surge = Sim.surgeIn(S), pa = Sim.arrivalChance(S);
     $('hud').innerHTML = `
       <span class="res" title="${S.season ? Sim.SEASONS[S.season].desc : ''}">${ic('sun')} 第 ${S.day} 天${S.season ? `<small>${Sim.SEASONS[S.season].name} ${sd}/${Sim.SEASON_LEN}</small>` : ''}</span>
-      <span class="res" title="食物：库存 / 每天净变化（明天的收成减去吃掉的）\n${pantryTxt()}">${ic('food', '食物')}<span class="${S.food + net < 0 ? 'c-red' : ''}">${S.food}</span><small class="${net < 0 ? 'c-amber' : ''}">${net >= 0 ? '+' : ''}${net}</small></span>
+      <span class="res" title="食物：库存 / 每天净变化（明天的收成减去吃掉的）\n${aheadTxt()}\n${pantryTxt()}">${ic('food', '食物')}<span class="${S.food + net < 0 ? 'c-red' : fa.short != null && fa.short < 4 ? 'c-amber' : ''}">${S.food}</span><small class="${net < 0 ? 'c-amber' : ''}">${net >= 0 ? '+' : ''}${net}</small></span>
       <span class="res" title="木料：堆路障、取暖、做木器">${ic('mat', '木料')}${S.mat}${inc.mat ? `<small>+${inc.mat}</small>` : ''}</span>
       <span class="res" title="废铁：焊据点铁窗、打造铁器、铁丝网\n零件 ${S.parts || 0}（修车厂敲的，做弩要用）">${ic('iron', '废铁')}${S.iron || 0}${inc.iron ? `<small>+${inc.iron}</small>` : ''}</span>
       <span class="res" title="化学品：做急救包、探照灯的燃料\n火药 ${S.powder || 0}（化工厂配的，压子弹要用）">${ic('chem', '化学品')}${S.chem || 0}</span>
@@ -1097,6 +1097,12 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
   }
   const leftTxt = r => r.left == null ? '不会坏' : r.left <= 0 ? '今晚就坏' : `最快 ${r.left} 天后坏`;
   const seedTxt = () => Object.keys(Sim.CROPS).map(k => `${FN(k)} ${S.seeds[k] || 0}`).join('、');
+  // 粮食预报：光靠存粮和菜园能撑多久
+  function aheadTxt() {
+    const a = Sim.foodAhead(S);
+    const t = a.short == null ? `光靠存粮和菜园，接下来 ${a.H} 天都够吃（最少还剩 ${a.low} 份）。` : a.short === 0 ? '光靠存粮和菜园，今晚就不够吃了。' : `光靠存粮和菜园，只够吃 ${a.short} 天，之后要靠搜刮。`;
+    return t + (a.bare ? `这段时间会有 ${a.bare} 块菜园没合适的种子，空着。` : '');
+  }
   const pantryTxt = () => pantryRows().map(r => `${FN(r.k)} ${r.n}（${leftTxt(r)}）`).join('、') + `\n种子：${seedTxt()}`;
   const SEA_N = k => Sim.SEASONS[k].name;
   // 作物在哪几季长得好
@@ -1109,6 +1115,8 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
   }
   function foodHtml() {
     let h = `<div class="gh">粮食 <span class="dim">每天吃 ${Sim.foodUse(S)} 份，先吃快坏的</span></div>`;
+    const fa = Sim.foodAhead(S);
+    h += `<div class="${fa.short != null && fa.short < 4 ? 'c-amber' : 'dim'}">${aheadTxt()}</div>`;
     const rows = pantryRows();
     h += rows.length ? rows.map(r => `<div class="gi"><div class="row2"><span>${ic('food')}<span class="c-amber">${FN(r.k)}</span> ×${r.n}</span><span class="${r.left != null && r.left <= 1 ? 'c-red' : 'dim'}">${leftTxt(r)}</span></div></div>`).join('') : '<div class="c-red">一点吃的都没有了。</div>';
     const menu = [...new Set((S.diet || []).flat())];
@@ -1230,7 +1238,7 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
         <li>天气：每晚的天气早就定了。每天早上有两三个人说说今晚会是什么天、看到了什么天象（“今晚”分页），各人看天的本事不一样，说话有没有把握跟准不准无关；楼长默认听战绩最好的人，也可以点别人改听他的，夜里的估算就按听的那个来。记事里会记谁说中了，住户卡片的提示里也有战绩。看错的人多半错成相近的天气，瞎猜的人就不一定了。收复电台能听广播，全准；特质“老寒腿”的人看天准，变天时膝盖还会疼。</li>
         <li>天气有 13 种：大雨天搜刮安全、存粮发霉，雷雨和大雨夜尖叫者叫不响，雷还可能劈中街上的楼；回南天存粮发霉得更凶；雾里看不清丧尸；酷暑白天好清理、夜里尸群多；寒流夜尸群少但要烧材料取暖，走了常常下霜，那天菜园没收成。有的天气是一段过程：外围环流之后一定是台风（尸群少、路障掉一层，第二天只能去相邻的街区），台风过后淹水一天（漂来材料、骑不了车）；东北季风刮起来，寒流多半跟着来。今晚的天气会延续到明天白天。</li>
         <li>季节一年七个：初春、春末、梅雨、盛夏、秋老虎、深秋、寒冬，每季 9 天，开局自己选从哪个季节开始。季节决定多半是什么天气，也决定菜园里什么种得活。</li>
-        <li>粮食分好几种（“仓库”分页）：罐头不会坏，米粮放 40 天，番薯 25 天、萝卜 14 天、丝瓜 7 天、青菜 4 天，每天先吃快坏的，放过期就扔了。连着 5 天只有同一种东西吃，会有人吃腻了赌气。冬天天冷，吃得多两成。</li>
+        <li>粮食分好几种（“仓库”分页）：罐头不会坏，米粮放 40 天，番薯 25 天、萝卜 14 天、丝瓜 7 天、青菜 4 天，每天先吃快坏的，放过期就扔了。连着 5 天只有同一种东西吃，会有人吃腻了赌气。冬天天冷，吃得多两成。仓库分页最上面（和顶栏食物的提示）会算光靠存粮和菜园能撑几天：菜园要等几天才收、换季后哪几块会因为没种子空着，都算在里面。</li>
         <li>菜园要种子：青菜长在初春、春末、深秋，番薯从春末种到秋老虎，丝瓜盛夏收得最多，萝卜是冬天唯一种得活的。作物过季就枯了，会自动用仓库里的种子换种这一季最好的，种下后一两天才开始收。种子在菜市场、公园、五金行最容易翻到，收成时偶尔也能留下一包；饿急了可以把种子煮来吃，但明年就没得种了。</li>
         <li>没有时间限制。地图上的物资搜光就没了，长久下去要靠菜园：自己地盘里的楼都能开垦，废墟和拆过的楼能种一整片。尸群到一定程度就不会再涨，但尸巢会一个个醒过来。怎么样才算熬出头，要你自己去找。</li>
         <li>存粮够、还有空床，会有人来投奔。通常每 7 天一次尸潮。</li>

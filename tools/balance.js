@@ -70,7 +70,9 @@ function policy(s, opt) {
   s = gearUp(s, opt);
   if (opt.plan) s = planCrops(s);
   // 快断粮了就把种子煮来吃：先吃接下来两季都用不上的，每种先留一包（会规划的留两包）
-  const later = k => [0, 9, 18].some(d => Sim.cropK(k, Sim.seasonOf(s, s.day + d)) > 0);
+  // 会规划的：冬天只有萝卜种得活，离入冬还有四季就开始留萝卜种子
+  const winterSoon = opt.plan && [0, 9, 18, 27, 36].some(d => Sim.seasonOf(s, s.day + d) === 'winter');
+  const later = k => [0, 9, 18].some(d => Sim.cropK(k, Sim.seasonOf(s, s.day + d)) > 0) || (winterSoon && Sim.cropK(k, 'winter') > 0);
   for (const k of Object.keys(Sim.CROPS).sort((a, b) => later(a) - later(b))) while (s.food < Sim.foodUse(s) && s.seeds[k] > (opt.plan && later(k) ? 2 : 1)) s = Sim.eatSeeds(s, k);
   const margin = opt.margin ?? 0;
   const plan = Sim.nightPlan(s);
@@ -83,7 +85,8 @@ function policy(s, opt) {
   // 会规划的脚本：据点按冲击上限守（铁门只有一扇），铁门受过伤时更保守
   // 看天气：雾夜冲击说不准，多留一点余量
   const fogM = opt.plan && plan.wx === 'fog' ? 1 : 0;
-  const target = f => (opt.plan && f.base ? (s.wall < s.wallMax * 0.7 ? f.hi + 1 : f.hi) : Math.ceil((f.lo + f.hi) / 2) + margin) + fogM;
+  // 据点的铁门撞一下不会马上没：完好时按中值守，受过伤才按上限守
+  const target = f => (opt.plan && f.base ? (s.wall < s.wallMax * 0.5 ? f.hi + 1 : s.wall < s.wallMax * 0.8 ? f.hi : Math.ceil((f.lo + f.hi) / 2)) : Math.ceil((f.lo + f.hi) / 2) + margin) + fogM;
   const fronts = plan.fronts.map(f => ({ ...f, need: target(f) - f.def.bar - f.def.place }))
     .sort((a, b) => (b.base - a.base) || (b.need - a.need));
   // 会规划的脚本知道加固在夜袭之前结算：会盖的人去加固，今晚就多 1–2 点，而且是永久的
@@ -101,17 +104,21 @@ function policy(s, opt) {
     const room = () => f.base ? s.fort < Sim.FORT_MAX : Sim.tile(s, f.x, f.y).bar < Sim.barMax(s);
     // 守这块地的人顺手在空着的边上造铁丝网或木栅（造完当晚就留在那里守，工事是永久的）
     const edgeFree = () => Sim.outEdges(s, f.x, f.y).filter(d => !Sim.fortAt(s, f.x, f.y, d) && !built.has(`${f.x},${f.y},${d}`));
-    const pickWork = () => res.iron >= 5 ? 'wire' : res.mat >= 7 ? 'palisade' : null;
+    // 会规划的：给据点焊铁窗和寒流取暖留够料，剩下的都拿去造；边都造满了就把木栅换成铁丝网
+    const keep = { iron: s.fort < Sim.FORT_MAX ? 2 : 0, mat: s.fort < Sim.FORT_MAX ? 2 : 0 };
+    const pickWork = () => !opt.plan ? (res.iron >= 5 ? 'wire' : res.mat >= 7 ? 'palisade' : null)
+      : res.iron - 3 >= keep.iron ? 'wire' : res.mat - 3 >= keep.mat + 2 ? 'palisade' : null;
+    const upgrade = () => opt.plan && res.iron - 3 >= keep.iron ? Sim.outEdges(s, f.x, f.y).filter(d => { const w = Sim.fortAt(s, f.x, f.y, d); return w && w.k === 'palisade' && !built.has(`${f.x},${f.y},${d}`); }) : [];
     while (need > 0 && pool.length) {
       if (opt.plan && canF(f.base) && room()) {
         const b = pool.filter(v => fortGain(v) >= v.fight).sort((a, c) => fortGain(c) - fortGain(a))[0];
         if (b) { pool.splice(pool.indexOf(b), 1); tasks[b.id] = f.base ? { k: 'fortify' } : { k: 'fortify', x: f.x, y: f.y }; need -= fortGain(b) * (s.brute && !f.base ? 0.5 : 1); payF(f.base); continue; }
       }
-      const v = pool.shift(), ef = edgeFree(), wk = !opt.noWorks && ef.length ? pickWork() : null;
+      const v = pool.shift(), ug = opt.noWorks ? [] : upgrade(), ef = edgeFree().length ? edgeFree() : ug, wk = !opt.noWorks && ef.length ? (ef === ug ? 'wire' : pickWork()) : null;
       if (wk) {
         tasks[v.id] = { k: 'build', x: f.x, y: f.y, item: `${wk}:${ef[0]}` }; built.add(`${f.x},${f.y},${ef[0]}`);
         for (const [k, n] of Object.entries(Sim.FORTS[wk].cost)) res[k] -= n;
-        need -= wk === 'wire' ? 2 : 1;
+        need -= ef === ug ? 1 : wk === 'wire' ? 2 : 1;
       } else tasks[v.id] = f.base ? { k: 'defend' } : { k: 'defend', x: f.x, y: f.y };
       need -= v.fight + (v.gear === 'spear' ? 1 : 0) + fire(v);
     }
@@ -139,15 +146,17 @@ function policy(s, opt) {
     const d = Math.abs(ri % W - o.x) + Math.abs(Math.floor(ri / W) - o.y);
     return Math.max(0, 6 - d) * 1.5;
   };
-  const claimable = front.filter(o => !o.t.owned && o.t.z === 0 && !o.t.nest).sort((a, b) => val(b) + nestPull(b) + goalPull(b) - val(a) - nestPull(a) - goalPull(a));
-  const clearable = front.filter(o => !o.t.owned && o.t.z > 0 && !o.t.nest).sort((a, b) => (opt.hunt ? (b.t.scream ? 9 : 0) - (a.t.scream ? 9 : 0) : 0) + (val(b) + nestPull(b) + goalPull(b)) / (1 + b.t.z) - (val(a) + nestPull(a) + goalPull(a)) / (1 + a.t.z));
+  const pull = o => nestPull(o) + goalPull(o);
+  const claimable = front.filter(o => !o.t.owned && o.t.z === 0 && !o.t.nest).sort((a, b) => val(b) + pull(b) - val(a) - pull(a));
+  const clearable = front.filter(o => !o.t.owned && o.t.z > 0 && !o.t.nest).sort((a, b) => (opt.hunt ? (b.t.scream ? 9 : 0) - (a.t.scream ? 9 : 0) : 0) + (val(b) + pull(b)) / (1 + b.t.z) - (val(a) + pull(a)) / (1 + a.t.z));
   const strippable = front.filter(o => !o.t.owned && o.t.z === 0 && o.t.strip > 0 && ['house', 'ruin', 'mart', 'market'].includes(o.t.t));
   const fo = opt.plan ? outlook(s) : null;
   const crisis = !!fo && fo.low < fo.use * 2;   // 接下来的淡季会断粮
   const hungry = s.food < s.surv.length * 3;
   let fortified = 0, farmed = 0, hungryScav = 0, seedHunt = false, groved = false;
   const fit = d => Object.keys(Sim.CROPS).filter(k => Sim.cropK(k, Sim.seasonOf(s, s.day + d)) > 0).reduce((a, k) => a + (s.seeds[k] || 0), 0);
-  const seedShort = fit(0) < 2 || fit(9) < Sim.plots(s).length;
+  const winterSeeds = Object.keys(Sim.CROPS).filter(k => Sim.cropK(k, 'winter') > 0).reduce((a, k) => a + (s.seeds[k] || 0), 0);
+  const seedShort = fit(0) < 2 || fit(9) < Sim.plots(s).length || (winterSoon && winterSeeds < Sim.plots(s).length);
   const seedy = scavable.filter(o => Sim.SEED_P[o.t.t] && !o.t.gutted).sort((a, b) => Sim.SEED_P[b.t.t] / (1 + b.t.z) - Sim.SEED_P[a.t.t] / (1 + a.t.z));
   const protectedSet = new Set(s.surv.filter(u => u.want && u.want.k === 'protect').map(u => `${u.want.x},${u.want.y}`));
   if (opt.wants) {
