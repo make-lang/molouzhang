@@ -588,19 +588,6 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
       if (blink) for (let k = 0; k < 2; k++) { const d = 5 + k * 4, a = k ? '#e2654b77' : '#e2654b'; px(sx - d, sy - 1, 1, 7, a); px(sx + 7 + d - 1, sy - 1, 1, 7, a); }
     }
     if (!t.owned && t.prog > 0) { const w = Math.max(1, Math.round(40 * t.prog / T[t.t].cost)); px(ox + 4, oy + 1, 40, 2, '#2a2d30'); px(ox + 4, oy + 1, w, 2, '#f0b04a'); }
-    // 路障：沿着朝外的边堆沙包，堆得越高越长
-    if (t.owned) {
-      const bar = isBaseT(t) ? S.fort / Sim.FORT_MAX : t.bar / Sim.barMax(S);
-      if (bar > 0) for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
-        const n = Sim.tile(S, x + dx, y + dy);
-        if (!n || n.owned) continue;
-        const len = Math.round(40 * bar);
-        for (let i = 0; i < len; i += 4) {
-          const bx = dy ? ox + 4 + i : dx < 0 ? ox + 1 : ox + 44, byy = dx ? oy + 4 + i : dy < 0 ? oy + 1 : oy + 44;
-          px(bx, byy, dy ? 3 : 3, dy ? 3 : 3, '#b8a27a'); px(bx, byy, 3, 1, '#d6c49c');
-        }
-      }
-    }
     // 派出去的人
     const here = S.surv.filter(v => Sim.ready(v) && v.task.x === x && v.task.y === y);
     here.forEach((v, i) => { const hx = ox + 6 + i * 4, hy = oy + 4; person(px, hx, hy, v.id === selSurv && tk % 2 ? '#ffffff' : TASKC[v.task.k]); });
@@ -612,6 +599,15 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
     if (t.drop) { px(ox + 18, oy + 22, 12, 6, '#ebe4cf'); px(ox + 20, oy + 21, 8, 1, '#ebe4cf'); px(ox + 19, oy + 28, 1, 5, '#c9c2ad'); px(ox + 28, oy + 28, 1, 5, '#c9c2ad'); px(ox + 19, oy + 33, 10, 7, '#7c6440'); px(ox + 19, oy + 33, 10, 1, '#c88a3e'); px(ox + 23, oy + 33, 2, 7, '#5aa65a'); }
     // 我方地盘：琥珀色的边和角
     if (t.owned) { ctx.globalAlpha = 0.45; px(ox, oy, TS, 1, '#f0b04a'); px(ox, oy + TS - 1, TS, 1, '#f0b04a'); px(ox, oy, 1, TS, '#f0b04a'); px(ox + TS - 1, oy, 1, TS, '#f0b04a'); ctx.globalAlpha = 1; corners(ox, oy, '#f0b04a', 5, 0); }
+    // 路障 / 工事：沿着朝外的边一层层往上加，等级越高东西越多（据点的工事 0–10 折成 5 层）
+    if (t.owned) {
+      const L = isBaseT(t) ? Math.ceil(S.fort / 2) : t.bar;
+      if (L > 0) for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+        const n = Sim.tile(S, x + dx, y + dy);
+        if (n && !n.owned) fortEdge(ox, oy, dx, dy, L);
+      }
+      if (isBaseT(t)) baseFort(ox, oy, tk);
+    }
     // 今晚守不住、看运气的边闪烁
     const f = PLAN.fronts.find(f => f.x === x && f.y === y);
     if (f && f.state !== 'safe' && blink) {
@@ -622,6 +618,30 @@ img.ic { width: 16px; height: 16px; image-rendering: pixelated; display: inline-
       if (open(x - 1, y)) px(ox, oy, 3, TS, col);
       if (open(x + 1, y)) px(ox + TS - 3, oy, 3, TS, col);
     }
+  }
+  // 一条边上的防御工事。u 是沿着边的方向，d 是从格子最外缘往里的深度
+  function fortEdge(ox, oy, dx, dy, L) {
+    const put = (u, d, lu, ld, c) => {
+      if (dy) px(ox + u, dy < 0 ? oy + d : oy + TS - d - ld, lu, ld, c);
+      else px(dx < 0 ? ox + d : ox + TS - d - ld, oy + u, ld, lu, c);
+    };
+    if (L >= 5) for (let u = 1; u < 47; u += 8) { put(u, 9, 7, 6, '#7a4a2c'); for (let k = u + 1; k < u + 7; k += 2) put(k, 9, 1, 6, '#a06a42'); put(u, 14, 7, 1, '#3a2214'); }   // 锈铁皮
+    const bags = (d, off) => { for (let u = off; u < 47; u += 7) { const w = Math.min(6, 47 - u); put(u, d, w, 4, '#3a2e1e'); put(u, d + 1, w, 3, '#b89c6c'); put(u, d + 3, w, 1, '#e6d2a2'); put(u + 1, d + 2, Math.max(0, w - 2), 1, '#cdb68a'); } };
+    if (L >= 2) bags(4, 3);
+    bags(1, 0);
+    if (L >= 3) for (let u = 4; u < 42; u += 14) {   // 拒马：两根木头交叉，尖端削白
+      for (let k = 0; k < 8; k++) { put(u + k, k, 2, 1, '#5a3a20'); put(u + 7 - k, k, 2, 1, '#8f6238'); }
+      put(u, 0, 2, 1, '#f0ece0'); put(u + 7, 0, 2, 1, '#f0ece0');
+    }
+    if (L >= 4) for (let u = 0; u < 47; u += 2) { put(u, 8 + (u % 4 ? 1 : 0), 2, 1, '#aab0b6'); if (u % 6 === 0) put(u + 1, 7, 1, 3, '#dfe3e6'); }   // 铁丝网
+  }
+  // 据点本身：工事高了，一楼的窗焊上铁板、顶楼堆沙包哨位；铁门被撞坏会看得出来
+  function baseFort(ox, oy, tk) {
+    if (S.fort >= 4) for (const wx of [9, 31]) { px(ox + wx - 1, oy + 32, 9, 5, '#5d6670'); px(ox + wx - 1, oy + 32, 9, 1, '#8d939b'); px(ox + wx, oy + 34, 1, 1, '#c8ccd0'); px(ox + wx + 6, oy + 34, 1, 1, '#c8ccd0'); }
+    if (S.fort >= 7) { for (let i = 0; i < 4; i++) px(ox + 22 + i * 2, oy + 6 - (i % 2), 3, 2, i % 2 ? '#cdb68a' : '#a8916a'); px(ox + 24, oy + 3, 2, 2, '#e7c39a'); px(ox + 24, oy + 5, 2, 1, '#74a6dc'); }
+    const hp = S.wall / S.wallMax;
+    if (hp < 0.5) { px(ox + 21, oy + 37, 1, 3, '#2a0e0a'); px(ox + 22, oy + 39, 2, 1, '#2a0e0a'); px(ox + 25, oy + 38, 1, 4, '#2a0e0a'); }
+    if (hp < 0.25) { px(ox + 21, oy + 40, 4, 3, '#0c0d11'); px(ox + 20, oy + 39, 1, 1, '#c8ccd0'); if (!REDUCED && tk % 2) px(ox + 25, oy + 40, 1, 1, '#ffd27a'); }
   }
   function corners(ox, oy, col, len, o) {
     for (const [a, b, w, h] of [[0, 0, len, 2], [0, 0, 2, len], [TS - len, 0, len, 2], [TS - 2, 0, 2, len], [0, TS - 2, len, 2], [0, TS - len, 2, len], [TS - len, TS - 2, len, 2], [TS - 2, TS - len, 2, len]])
