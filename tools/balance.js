@@ -67,11 +67,19 @@ function policy(s, opt) {
     for (let j = 0; j < W * H; j++) { const t = s.tiles[j]; if (t.nest && t.nest.found) best = Math.min(best, Math.abs(j % W - o.x) + Math.abs(Math.floor(j / W) - o.y)); }
     return best <= 2 ? opt.push : best === 3 ? opt.push / 2 : 0;
   };
-  const claimable = front.filter(o => !o.t.owned && o.t.z === 0 && !o.t.nest).sort((a, b) => val(b) + nestPull(b) - val(a) - nestPull(a));
-  const clearable = front.filter(o => !o.t.owned && o.t.z > 0 && !o.t.nest).sort((a, b) => (opt.hunt ? (b.t.scream ? 9 : 0) - (a.t.scream ? 9 : 0) : 0) + (val(b) + nestPull(b)) / (1 + b.t.z) - (val(a) + nestPull(a)) / (1 + a.t.z));
+  // 往电台推进（救援路线）：离电台越近越想拿；有了电台再去拿降落点
+  const goalPull = o => {
+    if (opt.goal !== 'rescue' || s.city === 'noradio') return 0;
+    const ri = s.tiles.findIndex(t => t.t === 'radio');
+    if (s.tiles[ri].owned) return !Sim.landing(s) && (o.t.t === 'park' || o.t.t === 'school') ? 6 : 0;
+    const d = Math.abs(ri % W - o.x) + Math.abs(Math.floor(ri / W) - o.y);
+    return Math.max(0, 6 - d) * 1.5;
+  };
+  const claimable = front.filter(o => !o.t.owned && o.t.z === 0 && !o.t.nest).sort((a, b) => val(b) + nestPull(b) + goalPull(b) - val(a) - nestPull(a) - goalPull(a));
+  const clearable = front.filter(o => !o.t.owned && o.t.z > 0 && !o.t.nest).sort((a, b) => (opt.hunt ? (b.t.scream ? 9 : 0) - (a.t.scream ? 9 : 0) : 0) + (val(b) + nestPull(b) + goalPull(b)) / (1 + b.t.z) - (val(a) + nestPull(a) + goalPull(a)) / (1 + a.t.z));
   const strippable = front.filter(o => !o.t.owned && o.t.z === 0 && o.t.strip > 0 && ['house', 'ruin', 'mart', 'market'].includes(o.t.t));
   const hungry = s.food < s.surv.length * 3;
-  let fortified = 0;
+  let fortified = 0, farmed = 0;
   const protectedSet = new Set(s.surv.filter(u => u.want && u.want.k === 'protect').map(u => `${u.want.x},${u.want.y}`));
   if (opt.wants) {
     for (const u of s.surv.filter(u => u.want && (u.want.k === 'rescue' || u.want.k === 'fetch'))) {
@@ -105,6 +113,11 @@ function policy(s, opt) {
     if (hungry && scavable.length) { const o = scavable[0]; tasks[v.id] = { k: 'scav', x: o.x, y: o.y }; continue; }
     const strippable2 = strippable.filter(o => !protectedSet.has(`${o.x},${o.y}`));
     if (opt.strip && s.mat < 4 && strippable2.length) { const o = strippable2[0]; tasks[v.id] = { k: 'strip', x: o.x, y: o.y }; continue; }
+    // 开垦：产出不够吃、又不是冬天，就把自己地盘里的废墟开成菜园
+    const farmable = Sim.owned(s).filter(t => !t.farm && t.t !== 'park' && t.t !== 'base').sort((a, b) => Sim.farmYield(b) - Sim.farmYield(a));
+    if (!opt.noFarm && farmable.length && farmed < 2 && s.season !== 'winter' && Sim.income(s, 1).food < Sim.foodUse(s)) {
+      const i = s.tiles.indexOf(farmable[0]); tasks[v.id] = { k: 'farm', x: i % W, y: Math.floor(i / W) }; farmed++; continue;
+    }
     if (expand && claimable.length && v.build >= 2) { const o = claimable[0]; tasks[v.id] = { k: 'claim', x: o.x, y: o.y }; continue; }
     if (expand && clearable.length && v.fight >= 2) { const o = clearable[0]; tasks[v.id] = { k: 'clear', x: o.x, y: o.y }; continue; }
     if (v.gear === 'bike') {   // 骑车的人去走路到不了、但值得跑一趟的地方
@@ -122,7 +135,7 @@ function policy(s, opt) {
 
 function run(seed, opt) {
   let s = Sim.newGame(seed, { season: opt.season || 'spring' }), guard = 0, food20 = null, maxOwned = 1;
-  while (!s.over && guard++ < 120) {
+  while (!s.over && guard++ < (opt.maxDays ?? 250)) {
     if (s.event) {
       const view = Sim.eventView(s);
       if (view.draft) {
@@ -156,20 +169,26 @@ if (require.main === module) {
     ['不打巢', { maxEdges: 14, strip: true, wants: true, hunt: true }],
     ['有空才打巢', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'after' }],
     ['先打巢', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', detail: true }],
+    ['奔电台', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', goal: 'rescue' }],
     // 其余季节都用先打巢的打法
-    ...Sim.SEASON_ORDER.slice(1).map(k => [Sim.SEASONS[k].name + '·先打巢', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', season: k }]),
+    ...Sim.SEASON_ORDER.filter(k => k !== 'spring').map(k => [Sim.SEASONS[k].name + '·先打巢', { maxEdges: 14, strip: true, wants: true, hunt: true, nest: 'first', season: k }]),
   ];
   if (process.argv[3]) variants.splice(0, variants.length, ...variants.filter(([n]) => n.includes(process.argv[3])));
   for (const [name, opt] of variants) {
     const res = []; for (let i = 0; i < N; i++) res.push(run(1000 + i, opt));
-    const wins = res.filter(r => r.s.over.win).length;
+    const wins = res.filter(r => r.s.over && r.s.over.win).length;
+    const end = k => res.filter(r => r.s.over && r.s.over.win && r.s.over.ending === k);
+    const winDay = res.filter(r => r.s.over && r.s.over.win).map(r => r.s.day - 1).sort((a, b) => a - b);
+    const stall = res.filter(r => !r.s.over).length;
     const avg = f => (res.reduce((a, r) => a + f(r), 0) / res.length).toFixed(1);
     const f20 = res.filter(r => r.food20 != null).map(r => r.food20).sort((a, b) => a - b);
     const med = f20.length ? f20[Math.floor(f20.length / 2)] : '-';
-    const by = (key, table) => Object.keys(table).map(k => { const g = res.filter(r => r.s[key] === k); return g.length ? `${table[k].name} ${(g.filter(r => r.s.over.win).length / g.length * 100).toFixed(0)}%(${g.length})` : ''; }).filter(Boolean).join('  ');
-    const lossDays = res.filter(r => !r.s.over.win).map(r => r.s.day - 1).sort((a, b) => a - b);
+    const by = (key, table) => Object.keys(table).map(k => { const g = res.filter(r => r.s[key] === k); return g.length ? `${table[k].name} ${(g.filter(r => r.s.over && r.s.over.win).length / g.length * 100).toFixed(0)}%(${g.length})` : ''; }).filter(Boolean).join('  ');
+    const lossDays = res.filter(r => r.s.over && !r.s.over.win).map(r => r.s.day - 1).sort((a, b) => a - b);
     const q = p => lossDays.length ? lossDays[Math.floor(p * (lossDays.length - 1))] : '-';
     console.log(`${name.padEnd(12)} 胜率 ${(wins / N * 100).toFixed(0)}%  失败日 p25/50/75 ${q(.25)}/${q(.5)}/${q(.75)}  第20天食物中位数 ${med}  峰值地块 ${avg(r => r.maxOwned)}  终局人数 ${avg(r => r.s.surv.length)}  丢地 ${avg(r => r.s.stats.tilesLost)}  投奔 ${avg(r => r.s.stats.recruited)}  失去 ${avg(r => r.s.stats.lost)}  端巢 ${avg(r => r.s.stats.nests || 0)}`);
+    const wq = p => winDay.length ? winDay[Math.floor(p * (winDay.length - 1))] : '-';
+    console.log(`  结局：救援 ${end('rescue').length}  烧光尸巢 ${end('safe').length}  自给自足 ${end('self').length}  拖到第 250 天没结束 ${stall}  获胜日 p25/50/75 ${wq(.25)}/${wq(.5)}/${wq(.75)}`);
     if (opt.detail) console.log(`  城况：${by('city', Sim.CITIES)}\n  出身：${by('origin', Sim.ORIGINS)}`);
   }
 }

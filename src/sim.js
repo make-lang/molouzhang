@@ -1,6 +1,7 @@
 // 末日楼长 · 模拟层 v0.2
 // 纯逻辑：所有函数接收 state、返回新 state，不碰 DOM。随机数种子存在 state 里，存档可完整复现。
 // v0.2：夜袭按边界逐块结算（扩张会拉长防线）；建筑可以拆掉换材料；食物充足时会有人来投奔。
+// v0.14：没有时间限制了。季节在一局里轮换（7 季，每季 9 天），尸群有上限，尸巢数量固定、有的在休眠；三个不明说的结局：叫救援、烧光尸巢、熬过冬天自给自足。
 // v0.13：天气和季节。每晚的天气提前掷好，白天只能看天象猜，可能猜错；季节决定这局的天气表，赢一局解锁下一个季节。
 // v0.11：感染。被丧尸弄伤可能是咬伤，三晚内要用急救包、送医院，否则会尸变；懂护理的人在家能拖一晚。
 // v0.10：尸巢藏起来了，要靠地盘推近、派人路过或者丧尸繁殖的线索去找；每局数量和位置更随机，中途还会冒出新巢。
@@ -12,9 +13,13 @@
 // v0.3：住户有绑在地图上的牵挂（救人、取物、收回老家、别拆），有期限，达成会更卖力，放着不管会出事。
 const Sim = (() => {
   'use strict';
-  const VERSION = 11;
+  const VERSION = 12;
   const W = 8, H = 8;
-  const GOAL = 30;          // 撑过第 30 夜，救援车队到达
+  const SEASON_LEN = 9;     // 每季 9 天，7 季一年
+  const HORDE_DAY_CAP = 16; // 尸群随天数增长，到这一天封顶
+  const MULT_MAX = 1.6;     // 尸群倍率上限（巢再多也就这样）
+  const FARM_FOOD = 3;      // 废墟、拆过的楼开垦成菜园每天的收成（再乘季节倍率）；完好的楼只能在院子里种，收成 1
+  const TILL = 4;           // 开垦要几点工
   const FORT_MAX = 10;      // 据点工事上限
   const BAR_MAX = 4;        // 其他地块路障上限
   const INJ_DAYS = 3;       // 受伤后休养天数（结算当天就减 1，实际缺席 2 天）
@@ -33,7 +38,7 @@ const Sim = (() => {
     police:   { name: '派出所', def: 3, cost: 5, loot: [2, 6], strip: 9, desc: '收复后这里自带防御 +3，适合当前哨。' },
     hardware: { name: '五金行', mat: 1, cost: 4, loot: [1, 12], strip: 6, desc: '材料多。收复后每天 +1 材料。' },
     temple:   { name: '宫庙',   beds: 2, def: 1, cost: 3, loot: [5, 2], strip: 6, desc: '收复后 +2 床位，这里防御 +1。' },
-    radio:    { name: '电台',   radio: true, cost: 8, loot: [1, 3], strip: 0, desc: '收复后可以发出求救信号，4 天后救援到达。' },
+    radio:    { name: '电台',   radio: true, cost: 8, loot: [1, 3], strip: 0, desc: '收复后可以跟外面联络，也能听到天气广播。' },
     ruin:     { name: '废墟',   cost: 2, loot: [2, 4], strip: 0, desc: '没什么用，但能连通街区。' },
   };
 
@@ -104,8 +109,8 @@ const Sim = (() => {
 
   // 城市状况：开局第一张三选一，决定这局的丧尸、尸潮节奏和胜利路线
   const CITIES = {
-    noradio:  { name: '电塔倒了', desc: '电台收复了也叫不来救援，只能撑满 30 天。作为补偿，开局马上多定一条楼规。' },
-    moon:     { name: '尸潮频繁', desc: '尸潮每 5 天来一次，规模小一些；每次撑过都能定一条楼规。' },
+    noradio:  { name: '电塔倒了', desc: '电台收复了也叫不来救援，只能另找出路。作为补偿，开局马上多定一条楼规。' },
+    moon:     { name: '尸潮频繁', desc: '尸潮每 5 天来一次，规模小一些；每次撑过都能多定一条楼规。' },
     builders: { name: '工地旁边', desc: '巨汉从第 7 天起就会出现，而且更常来，尸巢没端掉的话来得更勤。但废墟和五金行里的材料多一倍。' },
     screams:  { name: '满街尖叫',   desc: '开局 4 只尖叫者，最多会有 5 只。但它们把据点附近的丧尸引走了一半。' },
     airdrop:  { name: '军方空投', desc: '每 4 天往街区里投一箱补给，先到先得。但直升机的动静会把丧尸引过来，每晚尸群多一些。' },
@@ -178,14 +183,18 @@ const Sim = (() => {
     { txt: '天阴沉沉的，冷到骨子里', w: ['cold', 'cloudy'] },
   ];
   const KNEE_WX = ['rain', 'typhoon', 'cold'];
-  // 季节：决定这局的天气表。按顺序解锁，赢下一个季节解锁下一个。stay 是天气延续到下一晚的机会
+  // 季节：一局里轮着来，每季 9 天。wx 是天气表，stay 是天气延续到下一晚的机会，farm 是菜园（公园、屋顶菜园）的收成倍率
   const SEASONS = {
-    spring: { name: '春末', desc: '天气温和，多半是晴天和阴天，偶尔下雨、起雾。', wx: { sunny: 4, cloudy: 3, rain: 2, fog: 1 }, stay: 0.4 },
-    plum:   { name: '梅雨', desc: '雨下个不停。雨天搜刮安全，尖叫者也引不来尸群，但存粮会发霉。', wx: { cloudy: 2, rain: 6, fog: 2, sunny: 1 }, stay: 0.55 },
-    summer: { name: '盛夏', desc: '白天热得丧尸发软，夜里却更吵；隔几天就可能来一次台风。', wx: { sunny: 4, heat: 3, rain: 2, cloudy: 1, typhoon: 1 }, stay: 0.45 },
-    winter: { name: '寒冬', desc: '寒流和浓雾轮着来。冷的夜里丧尸少，但要烧材料取暖；雾里什么都看不清。', wx: { cloudy: 3, fog: 3, cold: 4, sunny: 1, rain: 1 }, stay: 0.5 },
+    early:  { name: '初春',   start: '开局温和', desc: '春寒料峭，常起雾、飘毛毛雨，雾里找巢不容易。菜园刚下种，收成一半。', wx: { cloudy: 4, fog: 3, rain: 2, sunny: 2, cold: 1 }, stay: 0.45, farm: 0.5 },
+    spring: { name: '春末',   start: '开局温和', desc: '天气温和，多半是晴天和阴天，偶尔下雨、起雾。适合往外扩张。', wx: { sunny: 4, cloudy: 3, rain: 2, fog: 1 }, stay: 0.4, farm: 1 },
+    plum:   { name: '梅雨',   start: '开局一般', desc: '雨下个不停。雨天搜刮安全，尖叫者也引不来尸群，但存粮会发霉。', wx: { cloudy: 2, rain: 6, fog: 2, sunny: 1 }, stay: 0.55, farm: 1 },
+    summer: { name: '盛夏',   start: '开局一般', desc: '白天热得丧尸发软，夜里却更吵；偶尔会来台风。', wx: { sunny: 4, heat: 3, rain: 2, cloudy: 1, typhoon: 1 }, stay: 0.45, farm: 1 },
+    autumn: { name: '秋老虎', start: '开局较难', desc: '还是很热，台风最多的季节。路障要提前堆高。', wx: { sunny: 3, heat: 2, typhoon: 2, rain: 2, cloudy: 1 }, stay: 0.4, farm: 1 },
+    late:   { name: '深秋',   start: '开局最难', desc: '东北季风起了，阴雨一连好几天。菜园收成减半，该为冬天囤东西了。', wx: { cloudy: 4, rain: 3, fog: 2, sunny: 1, cold: 1 }, stay: 0.55, farm: 0.5 },
+    winter: { name: '寒冬',   start: '开局较难', desc: '寒流和浓雾轮着来。冷的夜里丧尸少，但要烧材料取暖；菜园种不出东西。', wx: { cloudy: 3, fog: 2, cold: 5, sunny: 1, rain: 1 }, stay: 0.5, farm: 0 },
   };
-  const SEASON_ORDER = ['spring', 'plum', 'summer', 'winter'];
+  const SEASON_ORDER = ['early', 'spring', 'plum', 'summer', 'autumn', 'late', 'winter'];
+  const seasonOf = (s, day = s.day) => SEASON_ORDER[(SEASON_ORDER.indexOf(s.start) + Math.floor((Math.max(1, day) - 1) / SEASON_LEN)) % SEASON_ORDER.length];
 
   // ---------- 工具 ----------
   const clone = o => JSON.parse(JSON.stringify(o));
@@ -209,29 +218,35 @@ const Sim = (() => {
   const byId = (s, id) => s.surv.find(v => v.id === id);
   const isBase = t => t.t === 'base';
   const eff = t => t.gutted ? TYPES.ruin : TYPES[t.t];            // 拆过的建筑不再提供加成
-  const tname = t => TYPES[t.t].name + (t.gutted ? '（拆了一半）' : '');
+  const tname = t => TYPES[t.t].name + (t.gutted ? '（拆了一半）' : '') + (t.farm ? '·菜园' : '');
   const has = (s, k) => !!(s.rules && s.rules.includes(k));
   const tr = (v, k) => v.trait === k;
   const gear = (v, k) => v.gear === k;
   const barMax = s => 4 + (has(s, 'rebar') ? 2 : 0);
   const coords = (s) => { const out = []; for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) out.push([x, y]); return out; };
   const nests = s => coords(s).filter(([x, y]) => tile(s, x, y).nest);
-  const nestHint = (s, x, y) => nests(s).some(([a, b]) => !tile(s, a, b).nest.found && Math.abs(a - x) + Math.abs(b - y) <= NEST_R);   // 界面线索：这一带有没找到的巢
-  const nestMult = s => NEST_HORDE * nests(s).reduce((a, [x, y]) => a + tile(s, x, y).nest.lv, 0);
-  const nearNest = (s, x, y, r = NEST_R) => nests(s).some(([a, b]) => Math.abs(a - x) + Math.abs(b - y) <= r);
+  const awake = s => nests(s).filter(([x, y]) => !tile(s, x, y).nest.sleep);   // 醒着的巢；休眠的巢不繁殖、不加尸群
+  const nestHint = (s, x, y) => awake(s).some(([a, b]) => !tile(s, a, b).nest.found && Math.abs(a - x) + Math.abs(b - y) <= NEST_R);   // 界面线索：这一带有没找到的巢
+  const nestMult = s => NEST_HORDE * awake(s).reduce((a, [x, y]) => a + tile(s, x, y).nest.lv, 0);
+  const nearNest = (s, x, y, r = NEST_R) => awake(s).some(([a, b]) => Math.abs(a - x) + Math.abs(b - y) <= r);
   const storm = s => s.wxNow === 'typhoon';   // 台风天：只能去相邻街区，干活效率减半
   const wxWork = s => storm(s) ? 0.5 : 1;
   const tonight = (s, real) => s.wx ? (real ? s.wx[0].w : s.wx[0].g) : null;
 
   // ---------- 派生量 ----------
   const beds = s => owned(s).reduce((a, t) => a + (eff(t).beds || 0) + (has(s, 'bunks') && !t.gutted && (t.t === 'house' || t.t === 'school') ? 2 : 0), 0);
-  const income = s => {
+  // farm：菜园收成倍率，不传就按当季（公园和屋顶菜园看季节，菜市场不看）
+  const farmYield = t => t.t === 'ruin' || t.gutted ? FARM_FOOD : 1;
+  const income = (s, farm) => {
+    if (farm == null) farm = s.start ? SEASONS[seasonOf(s)].farm : 1;
     let food = 0, mat = 0;
     for (const t of owned(s)) {
-      food += eff(t).food || 0; mat += eff(t).mat || 0;
+      const f = eff(t).food || 0;
+      food += t.t === 'park' && !t.gutted ? Math.floor(f * farm) : f; mat += eff(t).mat || 0;
+      if (t.farm) food += Math.floor(farmYield(t) * farm);
       if (has(s, 'salvage') && t.t === 'ruin') mat++;
     }
-    if (has(s, 'rooftop')) food += 2;
+    if (has(s, 'rooftop')) food += Math.floor(2 * farm);
     return { food, mat };
   };
   // 每天吃掉的食物
@@ -245,7 +260,7 @@ const Sim = (() => {
   const surgeEvery = s => s && s.city === 'moon' ? 5 : 7;
   const surgeIn = s => { const p = surgeEvery(s); return p - (s.day % p || p); };   // 0 = 今晚
   function horde(day, s) {
-    let lo = 1 + 0.55 * day, hi = lo + 3;
+    let lo = 1 + 0.55 * Math.min(day, HORDE_DAY_CAP), hi = lo + 3;   // 到第 22 天封顶
     const surge = day % surgeEvery(s) === 0;
     const [k, add] = s && s.city === 'moon' ? [1.3, 1.5] : [1.4, 2];
     if (surge) { lo = lo * k + add; hi = hi * k + add; }
@@ -306,7 +321,7 @@ const Sim = (() => {
       for (const [a, b] of nbrs(x, y)) {
         const n = tile(s, a, b);
         if (n.camp && s.camp && s.camp.state === 'active') continue;   // 交好的营地替你挡住那一侧
-        if (!n.owned) { e++; w += 1 + 0.5 * Math.min(n.z, 4) + (n.scream && wx !== 'rain' ? 3 : 0) + (n.nest ? 2 : 0); }
+        if (!n.owned) { e++; w += 1 + 0.5 * Math.min(n.z, 4) + (n.scream && wx !== 'rain' ? 3 : 0) + (n.nest && !n.nest.sleep ? 2 : 0); }
       }
       if (!e) continue;
       if (isBase(t)) w += 2;
@@ -315,7 +330,7 @@ const Sim = (() => {
     }
     const screamers = wx === 'rain' ? 0 : coords(s).filter(([x, y]) => tile(s, x, y).scream && frontier(s, x, y)).length;   // 雨夜尖叫者引不来尸群
     const nm = nestMult(s);
-    const mult = (HORDE_BASE + 0.12 * Math.max(0, edges - 4) + 0.1 * screamers + nm + (s.city === 'airdrop' ? 0.06 : 0)) * (WX_NIGHT[wx] || 1);
+    const mult = Math.min(MULT_MAX, HORDE_BASE + 0.12 * Math.max(0, edges - 4) + 0.1 * screamers + nm + (s.city === 'airdrop' ? 0.06 : 0)) * (WX_NIGHT[wx] || 1);
     const [kl, kh] = wx === 'fog' ? [0.75, 1.25] : [1, 1];   // 雾夜：尸群多少说不准
     const W_ = fronts.reduce((a, f) => a + f.w, 0) || 1;
     const bonus = relBonus(s, s.surv.filter(ready)).b;
@@ -409,7 +424,7 @@ const Sim = (() => {
   // ---------- 天气 ----------
   // 下一晚的天气：多半延续前一晚，不然按季节的天气表抽。台风第 5 天以后才来，两次之间至少隔 4 天，不会连着两晚
   function nextWx(s, prev, day) {
-    const S = SEASONS[s.season];
+    const S = SEASONS[seasonOf(s, day)];
     const ok = k => k !== 'typhoon' || (day >= 5 && day - (s.lastTy || -99) >= 4);
     if (prev && prev !== 'typhoon' && rand(s) < S.stay) return prev;
     const ks = Object.keys(S.wx).filter(ok), tot = ks.reduce((a, k) => a + S.wx[k], 0);
@@ -420,8 +435,8 @@ const Sim = (() => {
   }
   // 看天象：真实天气按准确度 acc 冒出 n 条线索，看走眼的线索指向相邻的天气。楼长按线索猜（越专门的线索分量越重）。
   // 收复了电台能听广播，全准；老寒腿的膝盖对下雨、台风、寒流（不管是真的来还是看错了）都准，只管今晚
-  function readSky(s, slot, n, acc, night) {
-    const set = Object.keys(SEASONS[s.season].wx), sg = [];
+  function readSky(s, slot, n, acc, night, day) {
+    const S = SEASONS[seasonOf(s, day)], set = Object.keys(S.wx), sg = [];
     if (slot.w === 'typhoon') acc = Math.max(acc, 0.9);   // 台风的征兆很明显
     for (let i = 0; i < n; i++) {
       const near = WX_NEAR[slot.w].filter(k => set.includes(k));
@@ -429,7 +444,7 @@ const Sim = (() => {
       const cand = SIGNS.map((g, j) => j).filter(j => !sg.includes(j) && (lie ? SIGNS[j].w.includes(lie) && !SIGNS[j].w.includes(slot.w) : SIGNS[j].w.includes(slot.w)));
       if (cand.length) sg.push(pick(s, cand));
     }
-    const score = k => sg.reduce((a, j) => a + (SIGNS[j].w.includes(k) ? 1 / SIGNS[j].w.length : 0), 0) + SEASONS[s.season].wx[k] * 0.001;
+    const score = k => sg.reduce((a, j) => a + (SIGNS[j].w.includes(k) ? 1 / SIGNS[j].w.length : 0), 0) + S.wx[k] * 0.001;
     slot.sg = sg; slot.src = null;
     slot.g = set.reduce((a, k) => score(k) > score(a) ? k : a, set[0]);
     const knee = night && s.surv.find(v => tr(v, 'knees'));
@@ -440,13 +455,13 @@ const Sim = (() => {
     s.wxNow = nextWx(s, null, s.day - 1);
     const w0 = nextWx(s, s.wxNow, s.day), w1 = nextWx(s, w0, s.day + 1);
     s.wx = [{ w: w0 }, { w: w1 }];
-    readSky(s, s.wx[0], 2, 0.75, true); readSky(s, s.wx[1], 1, 0.6, false);
+    readSky(s, s.wx[0], 2, 0.75, true, s.day); readSky(s, s.wx[1], 1, 0.6, false, s.day + 1);
   }
   // 早上：昨晚的天气延续到今天白天，往后推一晚，重新看天象
   function rollWx(s) {
     s.wxNow = s.wx[0].w;
     s.wx = [{ w: s.wx[1].w }, { w: nextWx(s, s.wx[1].w, s.day + 1) }];
-    readSky(s, s.wx[0], 2, 0.75, true); readSky(s, s.wx[1], 1, 0.6, false);
+    readSky(s, s.wx[0], 2, 0.75, true, s.day); readSky(s, s.wx[1], 1, 0.6, false, s.day + 1);
   }
   // 给界面：现在的天气、今晚和明晚的天象与判断。conf：sure 有广播或膝盖，likely 两条线索都对得上，maybe 说不准
   function forecast(s) {
@@ -458,20 +473,22 @@ const Sim = (() => {
     return { now: s.wxNow, tonight: one(s.wx[0], true), next: one(s.wx[1], false) };
   }
 
-  // opt.season 直接指定季节；否则 opt.unlocked（解锁了几个季节）大于 1 时，开局先选季节
+  // opt.season 直接指定开局季节（脚本用）；不然开局先选季节
   function newGame(seed, opt = {}) {
     seed = (seed == null ? Math.floor(Math.random() * 1e9) : seed) | 0;
     const s = {
       v: VERSION, seed, rng: seed, day: 1, food: 21, mat: 6, fort: 2, wall: 12, wallMax: 12,
       tiles: [], surv: [], gone: [], nextId: 1, rel: [], log: [], over: null, rescueDay: null, event: null, rules: [], brute: false,
-      city: null, origin: null, queue: [], camp: null, sos: null, dog: false, stash: [], nestDay: null, season: null, wxNow: null, wx: null,
+      city: null, origin: null, queue: [], camp: null, sos: null, dog: false, stash: [], season: null, start: null, wxNow: null, wx: null, radio: false, winterIn: false,
       stats: { killed: 0, recruited: 0, lost: 0, tilesLost: 0, stripped: 0 },
     };
     const bx = 1, by = 6;
-    const rx = ri(s, 5, 6), ry = ri(s, 0, 1);
     const grid = new Array(W * H).fill(null);
     grid[by * W + bx] = 'base';
-    grid[ry * W + rx] = 'radio';
+    {   // 电台离据点 5–7 格，位置每局不同
+      const cand = coords(s).filter(([x, y]) => { const d = Math.abs(x - bx) + Math.abs(y - by); return d >= 5 && d <= 7; });
+      const [rx, ry] = pick(s, cand); grid[ry * W + rx] = 'radio';
+    }
     const dist = (x, y) => Math.abs(x - bx) + Math.abs(y - by);
     const specials = [['park', 2, 3], ['hardware', 2, 4], ['market', 2, 4], ['police', 3, 5], ['hospital', 3, 6],
       ['temple', 2, 6], ['school', 3, 7], ['mart', 4, 8], ['park', 4, 8], ['hardware', 5, 10], ['mart', 6, 11]];
@@ -511,8 +528,13 @@ const Sim = (() => {
       const ruins = coords(s).filter(([x, y]) => tile(s, x, y).t === 'ruin' && dist(x, y) >= 2);
       for (let i = 0; i < 2 && ruins.length; i++) tile(s, ...ruins.splice(Math.floor(rand(s) * ruins.length), 1)[0]).gear.push('helmet');
     }
-    { const r = rand(s); placeNests(s, r < 0.2 ? 1 : r < 0.75 ? 2 : 3); }   // 每局 1–3 个，多半是 2 个
-    s.nestDay = ri(s, 8, 16);   // 这一天夜里会冒出一个新巢
+    // 尸巢每局 3–5 个，数量固定：开局醒着 1–2 个，其余在休眠，隔一阵醒一个（大约第 10、19、28……天）
+    {
+      const total = ri(s, 3, 5), up = rand(s) < 0.4 ? 1 : 2;
+      placeNests(s, up);
+      let day = ri(s, 8, 12);
+      for (let i = up; i < total; i++, day += ri(s, 7, 11)) placeNests(s, 1, day);
+    }
     // 尖叫者：开局两只，离据点 3–6 格，听得见所以地图上看得到
     {
       const cand = coords(s).filter(([x, y]) => { const d = dist(x, y), t = tile(s, x, y); return d >= 3 && d <= 6 && t.z >= 2 && t.t !== 'radio' && !t.nest; });
@@ -533,21 +555,22 @@ const Sim = (() => {
     // 开局两张三选一：先看城市状况，再定楼长出身
     const draw3 = keys => { const pool = [...keys], out = []; while (out.length < 3) out.push(pool.splice(Math.floor(rand(s) * pool.length), 1)[0]); return out; };
     const city = { opts: draw3(Object.keys(CITIES)), next: draw3(Object.keys(ORIGINS)) };
-    const unlocked = clamp(opt.unlocked || 1, 1, SEASON_ORDER.length);
-    if (opt.season || unlocked === 1) { applySeason(s, opt.season || 'spring', true); s.event = { id: 'city', p: city }; }
-    else s.event = { id: 'season', p: { unlocked, city } };
+    if (opt.season) { applySeason(s, opt.season); s.event = { id: 'city', p: city }; }
+    else s.event = { id: 'season', p: { city } };
     return s;
   }
 
-  // 尸巢摆在离据点 3–6 格、离我方地盘至少 3 格、彼此至少隔 3 格的地方，一开始是藏着的。返回摆了几个
-  function placeNests(s, n) {
+  // 尸巢摆在离据点 3–6 格（休眠的可以更远）、离我方地盘至少 3 格、彼此至少隔 3 格的地方，一开始是藏着的。
+  // wake：休眠的巢第几天醒。返回摆了几个
+  function placeNests(s, n, wake) {
     const far = (x, y) => s.tiles.every((t, i) => !t.owned || Math.abs(i % W - x) + Math.abs(Math.floor(i / W) - y) >= 3);
-    const cand = coords(s).filter(([x, y]) => { const t = tile(s, x, y), d = distB(x, y); return d >= 3 && d <= 6 && far(x, y) && !t.owned && !t.camp && !t.nest && t.t !== 'radio' && !t.scream; })
+    const cand = coords(s).filter(([x, y]) => { const t = tile(s, x, y), d = distB(x, y); return d >= 3 && d <= (wake ? 8 : 6) && far(x, y) && !t.owned && !t.camp && !t.nest && t.t !== 'radio' && !t.scream; })
       .filter(([x, y]) => nests(s).every(([a, b]) => Math.abs(a - x) + Math.abs(b - y) >= 3));
     let put = 0;
     for (let i = 0; i < n && cand.length; i++, put++) {
       const [x, y] = cand.splice(Math.floor(rand(s) * cand.length), 1)[0], t = tile(s, x, y);
-      t.nest = { lv: 1, hp: nestHp(1), found: false, born: s.day }; t.z = nestZ(1);
+      t.nest = { lv: 1, hp: nestHp(1), found: false, born: wake || s.day, sleep: wake || 0 };
+      if (!wake) t.z = nestZ(1);
       for (let j = cand.length - 1; j >= 0; j--) if (Math.abs(cand[j][0] - x) + Math.abs(cand[j][1] - y) < 3) cand.splice(j, 1);
     }
     return put;
@@ -563,11 +586,17 @@ const Sim = (() => {
   }
   const related = (s, a, b) => s.rel.some(r => (r[0] === a && r[1] === b) || (r[0] === b && r[1] === a));
 
-  function applySeason(s, k, quiet) {
-    s.season = k;
+  function applySeason(s, k) {
+    s.start = s.season = k;
+    s.winterIn = k === 'winter';
     initWx(s);
-    if (!quiet || k !== 'spring') s.log.push({ d: s.day, tone: 'info', msg: `现在是${SEASONS[k].name}。${SEASONS[k].desc}` });
+    s.log.push({ d: s.day, tone: 'info', msg: `现在是${SEASONS[k].name}。${SEASONS[k].desc}` });
   }
+  // 救援要有降落点：没拆过的公园或国小
+  const landing = s => owned(s).some(t => !t.gutted && (t.t === 'park' || t.t === 'school'));
+  const radioUp = s => owned(s).some(t => eff(t).radio);
+  // 自给自足：人够多，菜园和产出（按正常收成算）够全楼吃
+  const selfFed = s => s.surv.length >= 10 && income(s, 1).food >= foodUse(s);
 
   function applyCity(s, k) {
     s.city = k;
@@ -633,10 +662,12 @@ const Sim = (() => {
     if (k === 'clear') return !t.owned && (t.nest && t.nest.found ? nestReach(s, x, y) : frontier(s, x, y) && t.z > 0) && !tr(v, 'coward');
     if (k === 'claim') return !t.owned && frontier(s, x, y) && t.z === 0 && !t.nest;
     if (k === 'strip') return !isBase(t) && t.strip > 0 && reachable(s, x, y) && t.z === 0 && !t.nest;
+    if (k === 'farm') return canFarm(t);
     if (k === 'rescue') return canGo(s, v, x, y) && (isSos(s, x, y) || s.surv.some(u => u.want && u.want.k === 'rescue' && u.want.x === x && u.want.y === y));
     return false;
   }
 
+  const canFarm = t => t.owned && !isBase(t) && !t.farm && t.t !== 'park';   // 我方的地块（公园本来就是菜园）都能开垦
   const isSos = (s, x, y) => !!(s.sos && s.sos.x === x && s.sos.y === y);
 
   function normTask(s, task) {
@@ -678,6 +709,7 @@ const Sim = (() => {
       return { gain: `可清掉 ${lo === hi ? lo : lo + '–' + hi} 只`, risk: clearRisk(s, v, t.z) };
     }
     if (k === 'craft') return { gain: `打造${GEAR[x].name}，耗 ${craftCost(v, x)} 材料；夜里照样守据点`, risk: 0 };
+    if (k === 'farm') return { gain: `开垦进度 +${Math.ceil((v.build + (tr(v, 'handy') ? 1 : 0)) * wxWork(s))}，还差 ${TILL - (t.till || 0)}；开好后每天 +${farmYield(t)} 食物（看季节）${farmYield(t) < FARM_FOOD ? '。楼还在，只能在院子里种，拆掉再开垦能种一整片' : ''}`, risk: 0 };
     if (k === 'claim') return { gain: `进度 +${Math.ceil((v.build + (tr(v, 'handy') ? 1 : 0)) * wxWork(s))}，还差 ${TYPES[t.t].cost - t.prog}`, risk: 0 };
     if (k === 'strip') {
       const g = Math.min(t.strip, Math.ceil(stripYield(s, v) * wxWork(s)));
@@ -767,7 +799,7 @@ const Sim = (() => {
         const nested = !!t.nest;
         for (const v of g) {
           if (t.z <= 0 && !t.nest) break;
-          const z0 = t.nest ? Math.max(t.z, 4) : t.z, f = Math.max(0, v.fight + bonus[v.id]);   // 巢里到处是卵和烂肉，地上没丧尸也危险
+          const z0 = t.nest && !t.nest.sleep ? Math.max(t.z, 4) : t.z, f = Math.max(0, v.fight + bonus[v.id]);   // 巢里到处是卵和烂肉，地上没丧尸也危险
           if (rand(s) < clearRisk(s, v, z0, f)) injure(v, z0, t);
           if (v.dead) continue;
           const p = Math.ceil((Math.max(f > 0 ? 1 : 0, Math.floor(f * 0.8 + rand(s) * 1.6)) + killBonus(v)) * wxWork(s));
@@ -784,9 +816,15 @@ const Sim = (() => {
           t.food += 3; t.mat += 5; t.gear.push(pick(s, NEST_LOOT));
           L(`${who}在${nm}清掉 ${kills} 只，一把火烧了尸巢！附近的丧尸散了一些。只要附近没有别的巢，这一带就不会再自己冒出丧尸。`, 'good');
           takeGear(t, who);
+          // 线索：烧光尸巢也是一条出路
+          if (s.stats.nests === 1 && nests(s).length) L(`${g[0].name}看着烧焦的巢，说：「要是把这些东西全烧光，这条街就能住人了。」`);
         } else if (nested) {
           L(`${who}在${nm}清掉 ${kills} 只` + (hits ? `，砍了尸巢 ${hits} 下，巢还剩 ${t.nest.hp}/${nestHp(t.nest.lv)}，每晚会长回 1 点。` : '，没砍到尸巢本身。'), 'info');
         } else L(`${who}在${nm}清掉了 ${kills} 只。` + (t.z === 0 ? '这里暂时干净了，可以动工收复，或者拆掉。' : `还剩 ${t.z} 只。`), t.z === 0 ? 'good' : 'info');
+      } else if (k === 'farm') {
+        t.till = (t.till || 0) + Math.ceil(g.reduce((a, v) => a + Math.max(1, v.build + bonus[v.id] + (tr(v, 'handy') ? 1 : 0)), 0) * wxWork(s));
+        if (t.till >= TILL) { t.farm = true; L(`${who}在${nm}翻好了土，开出${farmYield(t) < FARM_FOOD ? '几畦小菜园' : '一整片菜园'}。每天 +${farmYield(t)} 食物，冬天种不出东西。`, 'good'); }
+        else L(`${who}在${nm}翻土，开垦进度 ${t.till}/${TILL}。`);
       } else if (k === 'claim') {
         if (t.z > 0) { L(`${nm}又有丧尸游荡进来，工程停了。`, 'bad'); continue; }
         const add = Math.ceil(g.reduce((a, v) => a + Math.max(1, v.build + bonus[v.id] + (tr(v, 'handy') ? 1 : 0)), 0) * wxWork(s));
@@ -799,10 +837,10 @@ const Sim = (() => {
           takeGear(t, who);
           for (const u of s.surv) if (u.want && u.want.k === 'reclaim' && u.want.x === x && u.want.y === y)
             fulfil(s, u, `${u.name}站在自家门口看了很久。`);
-          if (eff(t).radio && s.city === 'noradio') L('电台修好了，可是电塔倒了，喇叭里只有杂音。只能靠自己撑到第 30 天。', 'bad');
-          else if (eff(t).radio && !s.rescueDay) {
-            s.rescueDay = s.day + 4;
-            L(`电台接通了！对面说救援会在第 ${s.rescueDay} 天早上到。`, 'good');
+          if (eff(t).radio && s.city === 'noradio') L('电台修好了，可是电塔倒了，喇叭里只有杂音。只能另找出路。', 'bad');
+          else if (eff(t).radio && !s.radio) {
+            s.radio = true;
+            L('电台接通了！对面说直升机可以来接人，但这一带没有能降落的地方，要找一块够大的空地，公园或者国小的操场都行。', 'good');
           }
         } else L(`${who}在${nm}封窗、清路，进度 ${t.prog}/${cost}。`);
       } else if (k === 'strip') {
@@ -1028,8 +1066,15 @@ const Sim = (() => {
       else if (t.z === 0 && (loud || nz.some(z => z >= 2)) && rand(s) < (loud ? 0.2 : 0.08)) t.z = 1;
     }
 
-    // 尸巢：到时候长大一级，巢本身回 1 点，自己这格补丧尸，再往两格以内喷（尸潮夜喷双倍）
+    // 休眠的巢到时候醒过来
     for (const [x, y] of nests(s)) {
+      const t = tile(s, x, y);
+      if (!t.nest.sleep || s.day < t.nest.sleep) continue;
+      Object.assign(t.nest, { sleep: 0, born: s.day, lv: 1, hp: nestHp(1) }); t.z = Math.max(t.z, nestZ(1));
+      L(t.nest.found ? `${TYPES[t.t].name}（${x + 1},${y + 1}）那个没动静的尸巢醒了。` : '半夜，街区深处的丧尸突然聚成一团。有个尸巢醒了，不知道在哪。', 'bad');
+    }
+    // 尸巢：到时候长大一级，巢本身回 1 点，自己这格补丧尸，再往两格以内喷（尸潮夜喷双倍）
+    for (const [x, y] of awake(s)) {
       const t = tile(s, x, y), lv = nestLv(t.nest, s.day);
       if (lv > t.nest.lv) { t.nest.lv = lv; t.nest.hp += 2; L(t.nest.found ? `${TYPES[t.t].name}（${x + 1},${y + 1}）的尸巢又大了一圈。` : '夜里不知道哪个方向传来一阵湿漉漉的蠕动声，有个没找到的尸巢又长大了。', 'bad'); }
       t.nest.hp = Math.min(nestHp(t.nest.lv), t.nest.hp + 1);
@@ -1038,10 +1083,6 @@ const Sim = (() => {
       for (let i = 0, n = t.nest.lv * (plan.surge ? 2 : 1); i < n && cand.length; i++) { const [a, b] = pick(s, cand); tile(s, a, b).z++; }
     }
 
-    if (s.nestDay && s.day === s.nestDay) {
-      s.nestDay = null;
-      if (placeNests(s, 1)) L('半夜，街区深处的丧尸突然聚成一团。又有一个新的尸巢，不知道在哪。', 'bad');
-    }
 
     // 偶尔冒出新的尖叫者（最多三只，满街尖叫最多五只；雨夜不会冒出来）
     const screamCap = wx === 'rain' ? 0 : s.city === 'screams' ? 5 : 3;
@@ -1054,14 +1095,36 @@ const Sim = (() => {
     // 结局判定
     if (s.wall <= 0) s.over = { win: false, reason: '铁门在凌晨被撞开了。' };
     else if (!s.surv.length) s.over = { win: false, reason: '最后一个人也离开了这栋楼。' };
+    else if (!nests(s).length) s.over = { win: true, ending: 'safe', reason: '最后一个尸巢烧完之后，街上再也没有冒出新的丧尸。剩下的游荡者一只只被清掉，这条街安静了。你们可以在这里住下去了。' };
     s.day++;
-    if (!s.over && s.rescueDay && s.day >= s.rescueDay) s.over = { win: true, reason: '直升机的声音从电台方向传来。你们得救了。' };
-    if (!s.over && s.day > GOAL) s.over = { win: true, reason: '第三十天清晨，军方的车队开进了街口。' };
+    // 救援：电台接通、有降落点，就约好 4 天后来；到时候降落点或电台丢了，直升机只能掉头
+    if (!s.over && s.radio && !s.rescueDay && radioUp(s) && (s.radio === 'old' || landing(s))) {
+      s.rescueDay = s.day + 4;
+      L(`电台那头确认了降落点，直升机第 ${s.rescueDay} 天早上到。守住电台和空地。`, 'good');
+    }
+    if (!s.over && s.rescueDay && s.day >= s.rescueDay) {
+      if (radioUp(s) && (s.radio === 'old' || landing(s))) s.over = { win: true, ending: 'rescue', reason: '直升机的声音从电台方向传来，螺旋桨把空地上的落叶全卷了起来。你们得救了。' };
+      else { s.rescueDay = null; L('直升机在头顶绕了两圈，找不到能降落的地方，飞走了。等守住电台和空地，再联络一次。', 'bad'); }
+    }
+    // 换季
+    if (!s.over && s.start) {
+      const prev = s.season;
+      s.season = seasonOf(s);
+      if (s.season !== prev) {
+        L(`入${SEASONS[s.season].name}了。${SEASONS[s.season].desc}`, 'info');
+        if (prev === 'winter' && s.winterIn && selfFed(s)) s.over = { win: true, ending: 'self', reason: '冬天过去了。菜园冒出新芽，楼里的人比停电时还多。不用等谁来救，这里已经是一个村子了。' };
+        if (s.season === 'winter') {
+          s.winterIn = true;
+          // 线索：熬过冬天、自给自足也是出路
+          if (!s.winterHint && s.surv.length) { s.winterHint = true; const o = s.surv.find(v => /^老|王太太/.test(v.name)) || s.surv[0]; L(`${o.name}裹着棉被说：「以前停电也熬过冬。人手够、菜园够吃，熬过这个冬天，日子就能过下去。」`); }
+        } else if (prev === 'winter') s.winterIn = false;
+      }
+    }
     if (s.over) { s.over.score = score(s); L(s.over.reason, s.over.win ? 'good' : 'bad'); }
     if (!s.over && s.wx) rollWx(s);
     // 明晚会不会有巨汉：白天就能从远处的动静判断出来（工地旁边来得早、来得多）
     const hb = horde(s.day, s), bd = s.city === 'builders' ? [7, 14, 0.04, 0.35] : [10, 21, 0.03, 0.3];
-    const bn = s.city === 'builders' ? 0.06 * nests(s).length : 0;   // 工地旁边的巢里会长出巨汉
+    const bn = s.city === 'builders' ? 0.06 * awake(s).length : 0;   // 工地旁边的巢里会长出巨汉
     s.brute = !s.over && s.day >= bd[0] && ((hb.surge && s.day >= bd[1]) || rand(s) < clamp((s.day - bd[0] + 1) * bd[2], 0, bd[3]) + bn);
     // 军方空投：每 4 天一箱，落在还没收复的街区
     if (!s.over && s.city === 'airdrop' && s.day % 4 === 1) {
@@ -1099,7 +1162,7 @@ const Sim = (() => {
     season: (s, p) => ({
       draft: true, title: '这是什么季节',
       text: '停电第三天。你推开顶楼的铁门，先看了看天。',
-      choices: SEASON_ORDER.map((k, i) => ({ key: k, line: '季节', label: SEASONS[k].name, note: i < p.unlocked ? SEASONS[k].desc : `撑过「${SEASONS[SEASON_ORDER[i - 1]].name}」才能解锁。`, ok: i < p.unlocked })),
+      choices: SEASON_ORDER.map(k => ({ key: k, line: SEASONS[k].start, label: SEASONS[k].name, note: SEASONS[k].desc, ok: true })),
     }),
     city: (s, p) => ({
       draft: true, title: '这座城怎么了',
@@ -1287,7 +1350,7 @@ const Sim = (() => {
 
   function burn(s, x, y) {
     const t = tile(s, x, y);
-    Object.assign(t, { t: 'ruin', z: 0, scream: false, food: 0, mat: Math.floor(t.mat / 2), strip: 0, gutted: false, prog: 0, drop: false, gear: [] });
+    Object.assign(t, { t: 'ruin', z: 0, scream: false, food: 0, mat: Math.floor(t.mat / 2), strip: 0, gutted: false, prog: 0, drop: false, gear: [], farm: false, till: 0 });
   }
 
   // 投奔的概率：有空床、人均存粮越多，越容易有人循着炊烟找上门
@@ -1300,9 +1363,11 @@ const Sim = (() => {
 
   function rollEvent(s) {
     if (has(s, 'trade') && s.mat >= 7) { s.mat -= 3; s.food += 2; s.log.push({ d: s.day, tone: 'info', msg: '黑市的人一早来过，用 3 材料换了 2 食物。' }); }
-    if (s.day > 1 && (s.day - 1) % surgeEvery(s) === 0) {
+    // 换季的第一天定一条楼规；尸潮频繁的城市撑过尸潮也定一条
+    const turn = s.start && s.day > 1 && (s.day - 1) % SEASON_LEN === 0, moon = s.city === 'moon' && s.day > 1 && (s.day - 1) % surgeEvery(s) === 0;
+    if (turn || moon) {
       const opts = draftOpts(s);
-      if (opts.length) { s.event = { id: 'draft', p: { opts } }; return; }
+      if (opts.length) { s.event = { id: 'draft', p: { opts, text: turn ? `入${SEASONS[s.season].name}了。大家聚在顶楼开会，要定一条新的楼规。` : null } }; return; }
     }
     // 事件链：到期的后续事件优先
     s.queue = s.queue || [];
@@ -1603,14 +1668,26 @@ const Sim = (() => {
       s.season = s.season || (s.city === 'rain' ? 'plum' : 'spring');
       if (s.city === 'rain') s.city = null;
       if (s.event && s.event.id === 'city') s.event.p.opts = s.event.p.opts.map(k => k !== 'rain' ? k : Object.keys(CITIES).find(c => !s.event.p.opts.includes(c)));
+      s.start = s.start || s.season;
       if (!s.wx) initWx(s);
+    }
+    if (s.v < 12) { // v11 → v12：没有时间限制、季节轮换、尸巢固定数量
+      const old = { spring: 'spring', plum: 'plum', summer: 'summer', winter: 'winter' }[s.season] || 'spring';
+      const n = SEASON_ORDER.length, k = Math.floor((Math.max(1, s.day) - 1) / SEASON_LEN);
+      s.start = SEASON_ORDER[((SEASON_ORDER.indexOf(old) - k) % n + n) % n];   // 倒推开局季节，让现在还是原来的季节
+      s.season = old; s.winterIn = old === 'winter';
+      if (s.rescueDay) s.radio = 'old'; else s.radio = s.tiles.some(t => t.owned && t.t === 'radio' && !t.gutted) && s.city !== 'noradio' ? 'old' : false;
+      if (s.nestDay && !s.over) placeNests(s, 1, Math.max(s.day + 1, s.nestDay));   // 还没冒出来的新巢改成休眠的巢
+      if (!s.over) for (let i = 0, d = s.day + ri(s, 8, 12); i < 2; i++, d += ri(s, 7, 11)) placeNests(s, 1, d);
+      delete s.nestDay;
+      if (s.event && s.event.id === 'season') delete s.event.p.unlocked;
     }
     s.v = VERSION;
     return s;
   }
 
   return {
-    VERSION, W, H, GOAL, WX, SEASONS, SEASON_ORDER, forecast, INF_DAYS, NEST_R, NEST_HORDE, HORDE_BASE, nestHp, nestLv, nestZ, nestHint, FORT_MAX, BAR_MAX, TYPES, TRAITS, RULES, CITIES, ORIGINS, GEAR, equip, useMedkit, bikeReach, nestReach, canGo, craftCost, barMax, foodUse, has, surgeEvery, surgeIn,
+    VERSION, W, H, SEASON_LEN, FARM_FOOD, TILL, farmYield, WX, SEASONS, SEASON_ORDER, seasonOf, forecast, selfFed, landing, INF_DAYS, NEST_R, NEST_HORDE, HORDE_BASE, nestHp, nestLv, nestZ, nestHint, FORT_MAX, BAR_MAX, TYPES, TRAITS, RULES, CITIES, ORIGINS, GEAR, equip, useMedkit, bikeReach, nestReach, canGo, craftCost, barMax, foodUse, has, surgeEvery, surgeIn,
     newGame, endDay, setTask, canDo, preview, resolveEvent, eventView,
     nightPlan, tileDefense, horde, beds, income, owned, tile, reachable, frontier, byId, ready, score, eff, tname,
     arrivalChance, serialize, deserialize, SKILL,

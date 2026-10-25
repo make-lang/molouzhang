@@ -2,10 +2,10 @@
 const Sim = require('../src/sim.js');
 let days = 0;
 const gearOps = { medkit: 0 };
-const seen = {};
+const seen = {}, endings = {};
 for (let i = 0; i < 400; i++) {
-  let s = Sim.newGame(i, i % 5 === 4 ? { unlocked: 4 } : { season: Sim.SEASON_ORDER[i % 4] }), n = 0;   // 四个季节轮流，每 5 局有一局从选季节开始
-  while (!s.over) {
+  let s = Sim.newGame(i, i % 8 === 7 ? {} : { season: Sim.SEASON_ORDER[i % 7] }), n = 0;   // 开局季节轮流，每 8 局有一局从选季节开始
+  while (!s.over && s.day < 200) {
     if (s.event) {
       // 前 200 局选第一个能选的，后 200 局轮流选不同的选项，覆盖事件链的各个分支
       const ch = Sim.eventView(s).choices, ok = ch.map((c, j) => c.ok ? j : -1).filter(j => j >= 0);
@@ -24,7 +24,7 @@ for (let i = 0; i < 400; i++) {
     for (const v of s.surv) {
       if ((v.id + s.day) % 9 === 0 && s.mat >= 6) { s = Sim.setTask(s, v.id, { k: 'craft', item: ['crowbar', 'axe', 'helmet'][s.day % 3] }); continue; }
       const x = (v.id * 3 + s.day) % Sim.W, y = (v.id * 5 + s.day) % Sim.H;
-      for (const k of ['rescue', 'clear', 'claim', 'strip', 'scav', 'fortify', 'defend'])
+      for (const k of ['rescue', 'clear', 'claim', 'farm', 'strip', 'scav', 'fortify', 'defend'])
         if (Sim.canDo(s, v, k, x, y)) { s = Sim.setTask(s, v.id, { k, x, y }); break; }
     }
     // 端巢：每隔几天把能打的人派去够得着的巢
@@ -36,10 +36,10 @@ for (let i = 0; i < 400; i++) {
     }
     const n0 = s.log.length;
     s = Sim.endDay(s);
-    for (const l of s.log.slice(n0)) for (const [k, re] of [['打造', /做出一件/], ['捡到', /找到了.*放进了仓库/], ['帽碎', /安全帽碎了/], ['掉落', /掉在了/], ['骑车', /骑车/], ['砍巢', /砍了尸巢/], ['端巢', /烧了尸巢/], ['巢长大', /尸巢又大了一圈|尸巢又长大了/], ['发现巢', /发现了一个尸巢/], ['新巢', /新的尸巢/], ['被咬', /被咬了！/], ['尸变', /已经不是/], ['治咬伤', /咬伤治好了/], ['翻到药', /翻到一个急救包/], ['台风', /台风刮了一整夜/], ['取暖', /份材料取暖/], ['冻病', /冻病了/], ['发霉', /发霉/], ['猜错天', /跟早上看天猜的/]]) if (re.test(l.msg)) gearOps[k] = (gearOps[k] || 0) + 1;
+    for (const l of s.log.slice(n0)) for (const [k, re] of [['打造', /做出一件/], ['捡到', /找到了.*放进了仓库/], ['帽碎', /安全帽碎了/], ['掉落', /掉在了/], ['骑车', /骑车/], ['砍巢', /砍了尸巢/], ['端巢', /烧了尸巢/], ['巢长大', /尸巢又大了一圈|尸巢又长大了/], ['发现巢', /发现了一个尸巢/], ['新巢', /新的尸巢/], ['被咬', /被咬了！/], ['尸变', /已经不是/], ['治咬伤', /咬伤治好了/], ['翻到药', /翻到一个急救包/], ['台风', /台风刮了一整夜/], ['取暖', /份材料取暖/], ['冻病', /冻病了/], ['发霉', /发霉/], ['猜错天', /跟早上看天猜的/], ['巢醒', /尸巢醒了/], ['约直升机', /确认了降落点/], ['直升机走', /飞走了/], ['换季', /^入.*了。/], ['开垦', /开出/]]) if (re.test(l.msg)) gearOps[k] = (gearOps[k] || 0) + 1;
     s = Sim.deserialize(Sim.serialize(s));
   }
-  days += s.day;
+  days += s.day; if (s.over) endings[s.over.win ? s.over.ending : 'lose'] = (endings[s.over.win ? s.over.ending : 'lose'] || 0) + 1; else endings.stall = (endings.stall || 0) + 1;
 }
 // v5 存档：去掉 v0.7 新增的字段，确认能迁移并继续玩
 let old = Sim.newGame(7);
@@ -49,8 +49,9 @@ for (const v of old.surv) delete v.gear;
 for (const t of old.tiles) { delete t.gear; delete t.nest; }
 old.v = 5;
 let m = Sim.deserialize(JSON.stringify(old));
-if (m.tiles.filter(t => t.nest).length !== 2) throw new Error('旧存档迁移后应该补上两个尸巢');
+if (m.tiles.filter(t => t.nest && !t.nest.sleep).length !== 2 || !m.tiles.some(t => t.nest && t.nest.sleep)) throw new Error('旧存档迁移后应该补上两个醒着的尸巢和休眠的巢');
 for (let d = 0; d < 10 && !m.over; d++) { while (m.event) m = Sim.resolveEvent(m, 0); m = Sim.endDay(m); }
 console.log(`冒烟测试通过：400 局，平均撑到第 ${(days / 400).toFixed(1)} 天；v5 存档迁移后跑到第 ${m.day} 天`);
+console.log(`结局：${JSON.stringify(endings)}`);
 console.log(`装备、尸巢、天气：${JSON.stringify(gearOps)}`);
 console.log(`覆盖到的事件分支 ${Object.keys(seen).length} 个：${Object.keys(seen).sort().join(' ')}`);
